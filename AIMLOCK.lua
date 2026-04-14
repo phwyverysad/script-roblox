@@ -14,6 +14,7 @@ local Config = {
     FOV = 20,
     ESPMaster = false,
     ESPColorMode = "Health",
+    TargetNPCs = false,
     BoundKey = nil,
     BoundInput = Enum.UserInputType.MouseButton2,
 
@@ -25,7 +26,7 @@ local Config = {
 }
 
 local State = {
-    isAiming = false,
+    isToggleAiming = false,
     isBinding = false,
     isMenuOpen = true,
     snapSide = "Right",
@@ -77,10 +78,19 @@ local function GetColorLogic(hpPercent)
     return Color3.new(1,1,1)
 end
 
-local function CreateESP(plr)
-    if ESP_Cache[plr] then return end
+local function ClearESP(char)
+    if ESP_Cache[char] then
+        ESP_Cache[char].Gui:Destroy()
+        ESP_Cache[char].Highlight:Destroy()
+        ESP_Cache[char] = nil
+    end
+end
+
+local function GetOrCreateESP(char)
+    if ESP_Cache[char] then return ESP_Cache[char] end
+    
     local bGui = Instance.new("BillboardGui", ESP_Folder)
-    bGui.Name = plr.Name .. "_Gui"
+    bGui.Name = "ESP_Gui"
     bGui.AlwaysOnTop = true
     bGui.Size = UDim2.new(0, 200, 0, 70)
     bGui.StudsOffset = Vector3.new(0, 4, 0)
@@ -95,30 +105,63 @@ local function CreateESP(plr)
     label.TextStrokeColor3 = Color3.new(0, 0, 0)
 
     local highlight = Instance.new("Highlight", ESP_Folder)
-    highlight.Name = plr.Name .. "_Highlight"
+    highlight.Name = "ESP_Highlight"
     highlight.FillTransparency = 0.5
     highlight.OutlineTransparency = 0.1
     highlight.Enabled = false
 
-    ESP_Cache[plr] = { Gui = bGui, Label = label, Highlight = highlight }
+    ESP_Cache[char] = { Gui = bGui, Label = label, Highlight = highlight }
+    
+    char.AncestryChanged:Connect(function(_, parent)
+        if not parent then ClearESP(char) end
+    end)
+    
+    return ESP_Cache[char]
 end
 
-local function RemoveESP(plr)
-    if ESP_Cache[plr] then
-        ESP_Cache[plr].Gui:Destroy()
-        ESP_Cache[plr].Highlight:Destroy()
-        ESP_Cache[plr] = nil
+local ValidTargets = {}
+task.spawn(function()
+    while true do
+        local currentTargets = {}
+        
+        -- หาผู้เล่น
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer and p.Character then
+                currentTargets[p.Character] = p.DisplayName
+            end
+        end
+        
+        if Config.TargetNPCs then
+            for _, obj in ipairs(workspace:GetDescendants()) do
+                if obj:IsA("Humanoid") and obj.Health > 0 then
+                    local char = obj.Parent
+                    if char and char:IsA("Model") and char ~= LocalPlayer.Character then
+                        if char:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("Head") then
+                            if not Players:GetPlayerFromCharacter(char) then
+                                currentTargets[char] = char.Name
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        
+        ValidTargets = currentTargets
+        
+        for char, _ in pairs(ESP_Cache) do
+            if not ValidTargets[char] then
+                ClearESP(char)
+            end
+        end
+        
+        task.wait(1)
     end
-end
-
-Players.PlayerRemoving:Connect(RemoveESP)
-for _, p in ipairs(Players:GetPlayers()) do if p ~= LocalPlayer then CreateESP(p) end end
-Players.PlayerAdded:Connect(function(p) if p ~= LocalPlayer then CreateESP(p) end end)
+end)
 
 if CoreGui:FindFirstChild("UltimateAimHub") then CoreGui.UltimateAimHub:Destroy() end
 
 local Gui = Instance.new("ScreenGui", CoreGui)
-Gui.Name = "AIMLOCK by phwyverysad"
+Gui.Name = "UltimateAimHub"
 Gui.ResetOnSpawn = false
 
 local SideTab = Instance.new("TextButton", Gui)
@@ -153,9 +196,9 @@ Header.BorderSizePixel = 0
 
 local Title = Instance.new("TextLabel", Header)
 Title.Size = UDim2.new(1, -20, 1, 0); Title.Position = UDim2.new(0, 10, 0, 0)
-Title.BackgroundTransparency = 1; Title.Text = "AIMLOCK by phwyverysad"
+Title.BackgroundTransparency = 1; Title.Text = "AIMLOCK & ESP by phwyverysad"
 Title.Font = Enum.Font.GothamBlack; Title.TextColor3 = Theme.Main
-Title.TextSize = 14; Title.TextXAlignment = "Left"
+Title.TextSize = 13; Title.TextXAlignment = "Left"
 
 local Line = Instance.new("Frame", Header)
 Line.Size = UDim2.new(1, 0, 0, 1); Line.Position = UDim2.new(0, 0, 1, 0); Line.BackgroundColor3 = Theme.Main; Line.BorderSizePixel = 0
@@ -163,7 +206,7 @@ Line.Size = UDim2.new(1, 0, 0, 1); Line.Position = UDim2.new(0, 0, 1, 0); Line.B
 local Content = Instance.new("ScrollingFrame", Main)
 Content.Size = UDim2.new(1, -12, 1, -55); Content.Position = UDim2.new(0, 6, 0, 50); Content.BackgroundTransparency = 1
 Content.ScrollBarThickness = 2; Content.ScrollBarImageColor3 = Theme.Main
-Content.CanvasSize = UDim2.new(0, 0, 0, 650)
+Content.CanvasSize = UDim2.new(0, 0, 0, 750)
 local Layout = Instance.new("UIListLayout", Content)
 Layout.Padding = UDim.new(0, 8); Layout.SortOrder = Enum.SortOrder.LayoutOrder
 Layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
@@ -183,7 +226,9 @@ local function CreateButton(text, isToggle, configKey, callback)
 
     Btn.MouseButton1Click:Connect(function()
         callback(Btn)
-        local active = (isToggle and Config[configKey])
+        local active = false
+        if isToggle then active = Config[configKey] else active = (Btn.BackgroundColor3 == Theme.Main) end
+        
         local color = active and Theme.Main or Theme.BtnOff
         local txtColor = active and Color3.new(1,1,1) or Theme.Text
         stroke.Color = active and Color3.new(1,1,1) or Color3.fromRGB(50, 50, 60)
@@ -208,10 +253,20 @@ end)
 CreateButton("MODE: TOGGLE", true, "UseHoldMode", function(btn)
     Config.UseHoldMode = not Config.UseHoldMode
     btn.Text = "MODE: " .. (Config.UseHoldMode and "HOLD" or "TOGGLE")
-    State.isAiming = false
+    State.isToggleAiming = false
 end)
 
-local BindBtn = CreateButton("BIND: MouseButton2", false, nil, function(btn)
+local TargetBtn = CreateButton("TARGET: PLAYERS ONLY", false, nil, function(btn)
+    Config.TargetNPCs = not Config.TargetNPCs
+    btn.Text = "TARGET: " .. (Config.TargetNPCs and "PLAYERS & NPCs" or "PLAYERS ONLY")
+    
+    local color = Config.TargetNPCs and Theme.Main or Theme.BtnOff
+    local txtColor = Config.TargetNPCs and Color3.new(1,1,1) or Theme.Text
+    btn.BackgroundColor3 = color
+    btn.TextColor3 = txtColor
+end)
+
+local BindBtn = CreateButton("BIND: nil", false, nil, function(btn)
     if State.isBinding then return end
     State.isBinding = true
     btn.Text = "... PRESS ANY KEY ..."
@@ -280,7 +335,6 @@ CreateButton("ESP COLOR: HEALTH", false, nil, function(btn)
     TweenService:Create(btn, TweenInfo.new(0.2), {TextColor3 = activeColor}):Play()
 end)
 
--- Window Logic
 local function CloseMenu()
     if not State.isMenuOpen then return end
     State.isMenuOpen = false
@@ -353,14 +407,6 @@ local function MakeDraggable(TopBar, Object)
 end
 MakeDraggable(Header, Main)
 
-local function IsCorrectInput(input)
-    if Config.BoundInput == Enum.UserInputType.Keyboard then
-        return input.KeyCode == Config.BoundKey
-    else
-        return input.UserInputType == Config.BoundInput
-    end
-end
-
 UIS.InputBegan:Connect(function(input, processed)
     if State.isBinding then
         State.isBinding = false
@@ -374,83 +420,97 @@ UIS.InputBegan:Connect(function(input, processed)
         TweenService:Create(BindBtn, TweenInfo.new(0.2), {BackgroundColor3 = Theme.BtnOff}):Play()
         return
     end
-    if processed then return end
-    if IsCorrectInput(input) then 
-        if Config.UseHoldMode then State.isAiming = true else State.isAiming = not State.isAiming end
+    
+    if not Config.UseHoldMode and not processed then
+        local valid = false
+        if Config.BoundInput == Enum.UserInputType.Keyboard and input.KeyCode == Config.BoundKey then valid = true end
+        if Config.BoundInput ~= Enum.UserInputType.Keyboard and input.UserInputType == Config.BoundInput then valid = true end
+        
+        if valid then State.isToggleAiming = not State.isToggleAiming end
     end
 end)
 
-UIS.InputEnded:Connect(function(input)
-    if Config.UseHoldMode and IsCorrectInput(input) then State.isAiming = false end
-end)
+local function IsAimKeyDown()
+    if Config.BoundInput == Enum.UserInputType.Keyboard then
+        return Config.BoundKey and UIS:IsKeyDown(Config.BoundKey) or false
+    else
+        local mouseStates = UIS:GetMouseButtonsPressed()
+        for _, btn in ipairs(mouseStates) do
+            if btn.UserInputType == Config.BoundInput then return true end
+        end
+        return false
+    end
+end
 
 RunService.RenderStepped:Connect(function()
     UpdateCircle()
     Circle.Visible = Config.Aimlock or Config.ESPMaster
 
+    local isAimingNow = false
+    if Config.Aimlock then
+        if Config.UseHoldMode then
+            isAimingNow = IsAimKeyDown()
+        else
+            isAimingNow = State.isToggleAiming
+        end
+    end
+
     local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
     local targetHead = nil
     local shortestDistance = math.huge
 
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p == LocalPlayer then continue end
-        local char = p.Character
-        local esp = ESP_Cache[p]
+    for char, nameStr in pairs(ValidTargets) do
+        local esp = GetOrCreateESP(char)
         
-        if char and char:FindFirstChild("Head") and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("Humanoid") then
-            local head = char.Head
-            local hrp = char.HumanoidRootPart
-            local hum = char.Humanoid
+        local head = char:FindFirstChild("Head")
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        local hum = char:FindFirstChild("Humanoid")
+        
+        if head and hrp and hum and hum.Health > 0 then
+            local rootPos, rootOnScreen = Camera:WorldToViewportPoint(hrp.Position)
+            local inFOV = false
+            local mag = 0
             
-            if hum.Health > 0 then
-                local rootPos, rootOnScreen = Camera:WorldToViewportPoint(hrp.Position)
-                local inFOV = false
-                local mag = 0
+            if rootOnScreen and rootPos.Z > 0 then
+                mag = (Vector2.new(rootPos.X, rootPos.Y) - center).Magnitude
+                if mag <= Circle.Radius then inFOV = true end
+            end
+
+            if Config.ESPMaster and inFOV then
+                local dist = math.floor((hrp.Position - Camera.CFrame.Position).Magnitude)
+                local hpPct = math.floor((hum.Health / hum.MaxHealth) * 100)
+                local statusColor = GetColorLogic(hpPct)
+
+                esp.Gui.Adornee = head
+                esp.Gui.Enabled = true
                 
-                if rootOnScreen and rootPos.Z > 0 then
-                    mag = (Vector2.new(rootPos.X, rootPos.Y) - center).Magnitude
-                    if mag <= Circle.Radius then inFOV = true end
-                end
+                local info = {}
+                if Config.ShowName then table.insert(info, nameStr) end
+                if Config.ShowHealth then table.insert(info, "HP: " .. hpPct .. "%") end
+                if Config.ShowDistance then table.insert(info, "[" .. dist .. "m]") end
+                esp.Label.Text = table.concat(info, "\n")
+                esp.Label.TextColor3 = statusColor
 
-                if esp then
-                    if Config.ESPMaster and inFOV then
-                        local dist = math.floor((hrp.Position - Camera.CFrame.Position).Magnitude)
-                        local hpPct = math.floor((hum.Health / hum.MaxHealth) * 100)
-                        local statusColor = GetColorLogic(hpPct)
-
-                        esp.Gui.Adornee = head
-                        esp.Gui.Enabled = true
-                        
-                        local info = {}
-                        if Config.ShowName then table.insert(info, p.DisplayName) end
-                        if Config.ShowHealth then table.insert(info, "HP: " .. hpPct .. "%") end
-                        if Config.ShowDistance then table.insert(info, "[" .. dist .. "m]") end
-                        esp.Label.Text = table.concat(info, "\n")
-                        esp.Label.TextColor3 = statusColor
-
-                        esp.Highlight.Adornee = char
-                        esp.Highlight.Enabled = Config.ShowHighlight
-                        esp.Highlight.FillColor = statusColor
-                        esp.Highlight.OutlineColor = Color3.new(1, 1, 1) 
-                    else
-                        esp.Gui.Enabled = false
-                        esp.Highlight.Enabled = false
-                    end
-                end
-
-                if inFOV and mag < shortestDistance then
-                    targetHead = head
-                    shortestDistance = mag
-                end
+                esp.Highlight.Adornee = char
+                esp.Highlight.Enabled = Config.ShowHighlight
+                esp.Highlight.FillColor = statusColor
+                esp.Highlight.OutlineColor = Color3.new(1, 1, 1) 
             else
-                if esp then esp.Gui.Enabled = false; esp.Highlight.Enabled = false end
+                esp.Gui.Enabled = false
+                esp.Highlight.Enabled = false
+            end
+
+            if inFOV and mag < shortestDistance then
+                targetHead = head
+                shortestDistance = mag
             end
         else
-            if esp then esp.Gui.Enabled = false; esp.Highlight.Enabled = false end
+            esp.Gui.Enabled = false
+            esp.Highlight.Enabled = false
         end
     end
 
-    if Config.Aimlock and State.isAiming and targetHead then
+    if isAimingNow and targetHead then
         Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetHead.Position)
     end
 end)
