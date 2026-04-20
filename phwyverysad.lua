@@ -14,47 +14,168 @@ local Camera      = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 local Mouse       = LocalPlayer:GetMouse()
 
+-- [ SAVE ORIGINALS on first run, RESTORE on re-run ]
+do
+    local _SaveOriginals = function()
+        if _G._PwyvOrig then return end  -- already saved
+        _G._PwyvOrig = {}
+        local o = _G._PwyvOrig
+        -- Camera
+        pcall(function()
+            o.FOV        = workspace.CurrentCamera.FieldOfView
+            o.MaxZoom    = Players.LocalPlayer.CameraMaxZoomDistance
+            o.MinZoom    = Players.LocalPlayer.CameraMinZoomDistance
+        end)
+        -- Lighting
+        pcall(function()
+            o.GlobalShadows = Lighting.GlobalShadows
+            o.FogEnd        = Lighting.FogEnd
+        end)
+        -- Rendering
+        pcall(function() o.Quality = settings().Rendering.QualityLevel end)
+        -- Character humanoid
+        local lpc = Players.LocalPlayer.Character
+        if lpc then
+            local h = lpc:FindFirstChildOfClass("Humanoid")
+            if h then
+                o.WalkSpeed        = h.WalkSpeed
+                o.JumpPower        = h.JumpPower
+                o.UseJumpPower     = h.UseJumpPower
+                o.MaxHealth        = h.MaxHealth
+                o.BreakJoints      = h.BreakJointsOnDeath
+                pcall(function() o.RequiresNeck = h.RequiresNeck end)
+            end
+        end
+        -- Other players' HRP sizes (for hitbox restore)
+        o.HRPSizes = {}
+        for _, p in ipairs(Players:GetPlayers()) do
+            pcall(function()
+                if p ~= Players.LocalPlayer and p.Character then
+                    local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+                    if hrp then o.HRPSizes[p.Name] = hrp.Size end
+                end
+            end)
+        end
+    end
+
+    local alreadyRan = CoreGui:FindFirstChild("PhwyverysadModMenu") ~= nil
+    if not alreadyRan then
+        -- First run: just save originals
+        _SaveOriginals()
+    else
+        -- Re-run: restore everything to exact originals
+        pcall(function()
+            local o = _G._PwyvOrig or {}
+            local lpc = Players.LocalPlayer.Character
+            if lpc then
+                local h = lpc:FindFirstChildOfClass("Humanoid")
+                if h then
+                    h.WalkSpeed           = o.WalkSpeed or 16
+                    h.UseJumpPower        = (o.UseJumpPower ~= nil) and o.UseJumpPower or true
+                    h.JumpPower           = o.JumpPower or 50
+                    h.MaxHealth           = o.MaxHealth or 100
+                    h.Health              = math.min(h.Health, o.MaxHealth or 100)
+                    h.BreakJointsOnDeath  = (o.BreakJoints ~= nil) and o.BreakJoints or true
+                    pcall(function() h.RequiresNeck   = (o.RequiresNeck ~= nil) and o.RequiresNeck or true end)
+                    h.PlatformStand       = false
+                end
+                -- Restore CanCollide
+                for _, p in ipairs(lpc:GetDescendants()) do
+                    pcall(function() if p:IsA("BasePart") then p.CanCollide = true end end)
+                end
+                -- Remove Fly forces
+                local hrp = lpc:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    local bg = hrp:FindFirstChildOfClass("BodyGyro")
+                    local bv = hrp:FindFirstChildOfClass("BodyVelocity")
+                    if bg then bg:Destroy() end
+                    if bv then bv:Destroy() end
+                end
+                pcall(function() lpc.Animate.Disabled = false end)
+                -- Restore camera subject
+                local hum = lpc:FindFirstChildOfClass("Humanoid")
+                if hum then workspace.CurrentCamera.CameraSubject = hum end
+            end
+            -- Camera restore
+            workspace.CurrentCamera.FieldOfView = o.FOV or 70
+            pcall(function() Players.LocalPlayer.CameraMaxZoomDistance = o.MaxZoom or 400 end)
+            pcall(function() Players.LocalPlayer.CameraMinZoomDistance = o.MinZoom or 5 end)
+            -- Lighting restore
+            pcall(function() Lighting.GlobalShadows = (o.GlobalShadows ~= nil) and o.GlobalShadows or true end)
+            pcall(function() Lighting.FogEnd = o.FogEnd or 1e6 end)
+            -- Rendering quality restore
+            pcall(function() settings().Rendering.QualityLevel = o.Quality or Enum.QualityLevel.Automatic end)
+            -- Restore other players' hitboxes
+            for _, p in ipairs(Players:GetPlayers()) do
+                pcall(function()
+                    if p ~= Players.LocalPlayer and p.Character then
+                        local hrp2 = p.Character:FindFirstChild("HumanoidRootPart")
+                        if hrp2 then
+                            local origSz = (o.HRPSizes and o.HRPSizes[p.Name]) or Vector3.new(2,2,1)
+                            hrp2.Size          = origSz
+                            hrp2.Transparency  = 1
+                            hrp2.Material      = Enum.Material.SmoothPlastic
+                            hrp2.CanCollide    = true
+                        end
+                    end
+                end)
+            end
+            -- Destroy ESP folder
+            local espF = workspace:FindFirstChild("NexusESP_Folder") or workspace:FindFirstChild("PhwyverysadESP")
+            if espF then espF:Destroy() end
+            -- Remove old FOV Drawing circle
+            if _G._PwyvCircle then
+                pcall(function() _G._PwyvCircle.Visible=false; _G._PwyvCircle:Remove() end)
+                _G._PwyvCircle = nil
+            end
+        end)
+        -- Clear saved originals so they're re-captured fresh this run
+        _G._PwyvOrig = nil
+    end
+end
 for _, n in ipairs({"PhwyverysadModMenu","PhwyverysadDropdowns","PhwyverysadCPicker","NexusESP_Folder"}) do
     local g = CoreGui:FindFirstChild(n); if g then g:Destroy() end
 end
 
 -- [ CONFIG ]
 local Config = {
-    Aimlock = false, AimMode = "TOGGLE", FOV = 20, AimSmooth = 0.25,
-    WallCheck = true, TargetMode = "Players",
-    EnemyOnly = false, BindType = "Mouse", BindKey = nil,
+    Aimlock = false, AimMode = "HOLD", FOV = 20, AimSmooth = 1,
+    WallCheck = true,
+    -- TargetMode: 1=PLAYERS ONLY  2=NPCs ONLY  3=PLAYERS & NPCs
+    TargetMode = 1,
+    EnemyOnly = false, BindType = "Keyboard", BindKey = nil,
 
-    ESPMaster = false, ESPShowName = true, ESPShowHealth = true,
-    ESPShowDistance = true, ESPHighlight = true,
+    ESPMaster = false, ESPShowName = false, ESPShowHealth = false,
+    ESPShowDistance = false, ESPHighlight = false,
     ESPTeamCheck = false, ESPTeamColor = false, ESPXray = false,
-    ESPTextSize = 14, ESPFillTrans = 0.5, ESPOutlineTrans = 0.1,
+    ESPTextSize = 10, ESPFillTrans = 0.5, ESPOutlineTrans = 0.1,
     ESPColor_C3 = Color3.new(1,1,1),
 
-    P_Master = false, P_ShowName = true, P_ShowHealth = true,
-    P_ShowDist = true, P_Highlight = true,
+    P_Master = false, P_ShowName = false, P_ShowHealth = false,
+    P_ShowDist = false, P_Highlight = false,
     P_TeamCheck = false, P_TeamColor = false, P_Xray = false,
-    P_TextSize = 14, P_FillTrans = 0.5, P_OutlineTrans = 0.1,
+    P_TextSize = 10, P_FillTrans = 0.5, P_OutlineTrans = 0.1,
     P_HitboxToggle = false, P_HitboxSize = 32,
     P_Color_C3 = Color3.new(1,1,1),
-    P_ESPInFOVOnly = false,     -- show Player ESP only inside FOV circle
+    P_ESPInFOVOnly = false,
 
     WalkSpeed = 100, WSToggle = false,
     JumpPower = 100, JPToggle = false,
-    InfJump = false, FlyToggle = false, FlySpeed = 50,
+    InfJump = false, FlyToggle = false, FlySpeed = 100,
     Noclip = false, InfZoom = false,
     FOVToggle = false, FOVView = 70,
     FOVColor_C3 = Color3.fromRGB(30,161,255),
 
-    GodMode = false, AntiAFK = false,
+    GodMode = false, AntiAFK = true,
     FPSBooster = false, FPS_NoShadows = true,
     FPS_NoParticles = true, FPS_NoClothes = true, FPS_LowQuality = true,
 
-    ShowFPSPing = "FPS & Ping", ShowStatsToggle = false, HUDPosition = "TopLeft",
-    TPTarget = "-", TPMode = "Safe Fly", TPFlightSens = 80, TPGOSwitch = false,
+    ShowFPSPing = "FPS & Ping", ShowStatsToggle = false, HUDPosition = "TopRight",
+    TPTarget = "-", TPMode = "Warp", TPFlightSens = 80, TPGOSwitch = false,
     SpecTarget = "-", SpecToggle = false,
     ClickTPToggle = false, ClickTPBindType = "Keyboard", ClickTPBindKey = nil,
     MenuToggleBindType = "Keyboard", MenuToggleBindKey = nil, MenuVisible = true,
-    Theme = "Dark",
+    Theme = "Midnight",
 }
 
 -- [ STATE ]
@@ -68,6 +189,7 @@ local State = {
 
 local Connections = {}; local ESP_Cache = {}; local NPCCache = {}
 local XrayCache_M = {}; local XrayCache_P = {}; local HitboxOriginalSizes = {}
+local OriginalInteractData = {}
 local LockedTarget = nil; local FlyBG, FlyBV = nil, nil
 local WS_Loop,JP_Loop,NC_Conn,IJ_Conn = nil,nil,nil,nil
 local GM_Conn,AFK_Conn,FPS_DescConn,SafeTP_Conn = nil,nil,nil,nil
@@ -76,6 +198,8 @@ local lastWarpTick = 0
 local AllRowFrames = {}; local ThemeRefs = {}
 local Tabs = {}; local currentTab = nil; local AllRows = {}
 local ESP_Folder
+-- ValidTargets: populated by target scanner (same as AIMLOCK.lua pattern)
+local ValidTargets = {}  -- char -> displayName
 
 local function AddConn(c) table.insert(Connections,c); return c end
 local function RegTR(obj,key,prop) table.insert(ThemeRefs,{obj=obj,key=key,prop=prop}); return obj end
@@ -297,10 +421,34 @@ RegTR(SidebarLine,"Stroke","BackgroundColor3")
 local SidebarTitle=Instance.new("TextLabel",Sidebar); SidebarTitle.Size=UDim2.new(1,0,0,22); SidebarTitle.Position=UDim2.new(0,16,0,18)
 SidebarTitle.BackgroundTransparency=1; SidebarTitle.Text="NAVIGATION"; SidebarTitle.TextColor3=Color3.fromRGB(80,80,110); SidebarTitle.Font=Enum.Font.GothamBold; SidebarTitle.TextSize=9; SidebarTitle.TextXAlignment=Enum.TextXAlignment.Left
 
-local MenuList=Instance.new("ScrollingFrame",Sidebar); MenuList.Size=UDim2.new(1,0,1,-52); MenuList.Position=UDim2.new(0,0,0,52)
+local MenuList=Instance.new("ScrollingFrame",Sidebar); MenuList.Size=UDim2.new(1,0,1,-112); MenuList.Position=UDim2.new(0,0,0,52)
 MenuList.BackgroundTransparency=1; MenuList.ScrollBarThickness=2; MenuList.BorderSizePixel=0; MenuList.ScrollBarImageColor3=Colors.PrimaryBlue
 local MenuLyt=Instance.new("UIListLayout",MenuList); MenuLyt.Padding=UDim.new(0,4); MenuLyt.HorizontalAlignment=Enum.HorizontalAlignment.Center
 Instance.new("UIPadding",MenuList).PaddingTop=UDim.new(0,4)
+
+-- Profile Section (Bottom Left Sidebar)
+local ProfileContainer=Instance.new("Frame",Sidebar)
+ProfileContainer.Size=UDim2.new(1,0,0,60); ProfileContainer.Position=UDim2.new(0,0,1,-60)
+ProfileContainer.BackgroundTransparency=1; ProfileContainer.BorderSizePixel=0
+
+local PLine=Instance.new("Frame",ProfileContainer); PLine.Size=UDim2.new(1,-32,0,1); PLine.Position=UDim2.new(0,16,0,0)
+PLine.BackgroundColor3=Themes.Dark.Stroke; PLine.BorderSizePixel=0; RegTR(PLine,"Stroke","BackgroundColor3")
+
+local AvatarImg=Instance.new("ImageLabel",ProfileContainer)
+AvatarImg.Size=UDim2.new(0,34,0,34); AvatarImg.Position=UDim2.new(0,16,0.5,-17)
+AvatarImg.BackgroundColor3=Color3.fromRGB(40,40,55); Corner(AvatarImg,99)
+local AvStk=Stroke(AvatarImg,Colors.PrimaryBlue,1.2); RegTR(AvStk,"Primary","Color")
+pcall(function() AvatarImg.Image=Players:GetUserThumbnailAsync(LocalPlayer.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size420x420) end)
+
+local DispLbl=Instance.new("TextLabel",ProfileContainer)
+DispLbl.Size=UDim2.new(1,-68,0,16); DispLbl.Position=UDim2.new(0,62,0,14)
+DispLbl.BackgroundTransparency=1; DispLbl.Text=LocalPlayer.DisplayName; DispLbl.TextColor3=Color3.new(1,1,1)
+DispLbl.Font=Enum.Font.GothamBold; DispLbl.TextSize=12; DispLbl.TextXAlignment=Enum.TextXAlignment.Left; DispLbl.TextTruncate=Enum.TextTruncate.AtEnd
+
+local UserLbl=Instance.new("TextLabel",ProfileContainer)
+UserLbl.Size=UDim2.new(1,-68,0,14); UserLbl.Position=UDim2.new(0,62,0,31)
+UserLbl.BackgroundTransparency=1; UserLbl.Text="@"..LocalPlayer.Name; UserLbl.TextColor3=Color3.fromRGB(150,150,170)
+UserLbl.Font=Enum.Font.GothamMedium; UserLbl.TextSize=10; UserLbl.TextXAlignment=Enum.TextXAlignment.Left; UserLbl.TextTruncate=Enum.TextTruncate.AtEnd
 
 local MainContent=Instance.new("Frame",Body); MainContent.Size=UDim2.new(1,-210,1,0); MainContent.Position=UDim2.new(0,210,0,0)
 MainContent.BackgroundColor3=Themes.Dark.Content; MainContent.BorderSizePixel=0; RegTR(MainContent,"Content","BackgroundColor3")
@@ -333,11 +481,10 @@ DDDim.MouseButton1Click:Connect(HideDD)
 -- [ COLOR PICKER (Floating singleton) ]
 local CPGui=Instance.new("ScreenGui",CoreGui); CPGui.Name="PhwyverysadCPicker"; CPGui.DisplayOrder=210; CPGui.ResetOnSpawn=false
 
-local CPDim=Instance.new("TextButton",CPGui); CPDim.Size=UDim2.new(1,0,1,0); CPDim.BackgroundTransparency=1; CPDim.Text=""; CPDim.ZIndex=108; CPDim.Visible=false
-
-local CPPanel=Instance.new("Frame",CPGui); CPPanel.Size=UDim2.new(0,248,0,310); CPPanel.BackgroundColor3=Color3.fromRGB(18,18,26)
-CPPanel.BorderSizePixel=0; CPPanel.Visible=false; CPPanel.ZIndex=109; Corner(CPPanel,14)
-Instance.new("UIStroke",CPPanel).Color=Colors.PrimaryBlue
+local CPPanel=Instance.new("Frame",CPGui); CPPanel.Size=UDim2.new(0,252,0,340); CPPanel.BackgroundColor3=Color3.fromRGB(10,10,15)
+CPPanel.BackgroundTransparency=0.45; CPPanel.BorderSizePixel=0; CPPanel.Visible=false; CPPanel.ZIndex=110; Corner(CPPanel,16)
+local CPPanelStroke=Instance.new("UIStroke",CPPanel); CPPanelStroke.Color=Colors.PrimaryBlue; CPPanelStroke.Thickness=1.5
+CPPanel.ClipsDescendants=false
 
 -- CP shadow
 local CPS=Instance.new("ImageLabel",CPPanel); CPS.Size=UDim2.new(1,60,1,60); CPS.Position=UDim2.new(0,-30,0,-30)
@@ -345,22 +492,21 @@ CPS.BackgroundTransparency=1; CPS.Image="rbxassetid://6015897843"; CPS.ImageColo
 CPS.SliceCenter=Rect.new(49,49,450,450); CPS.ScaleType=Enum.ScaleType.Slice; CPS.ZIndex=-1
 
 -- CP Title bar
-local CPTitle=Instance.new("Frame",CPPanel); CPTitle.Size=UDim2.new(1,0,0,36); CPTitle.BackgroundColor3=Color3.fromRGB(22,22,32); CPTitle.BorderSizePixel=0
-Corner(CPTitle,14)
-local CPTitleFix=Instance.new("Frame",CPTitle); CPTitleFix.Size=UDim2.new(1,0,0,14); CPTitleFix.Position=UDim2.new(0,0,1,-14); CPTitleFix.BackgroundColor3=Color3.fromRGB(22,22,32); CPTitleFix.BorderSizePixel=0
+local CPTitle=Instance.new("Frame",CPPanel); CPTitle.Size=UDim2.new(1,0,0,36); CPTitle.BackgroundTransparency=1; CPTitle.BorderSizePixel=0
+local CPTitleFix=Instance.new("Frame",CPTitle); CPTitleFix.Size=UDim2.new(1,0,0,1); CPTitleFix.Position=UDim2.new(0,0,1,-1); CPTitleFix.BackgroundColor3=Color3.new(1,1,1); CPTitleFix.BackgroundTransparency=0.85; CPTitleFix.BorderSizePixel=0
 local CPTitleLbl=Instance.new("TextLabel",CPTitle); CPTitleLbl.Size=UDim2.new(1,-42,1,0); CPTitleLbl.Position=UDim2.new(0,14,0,0)
 CPTitleLbl.BackgroundTransparency=1; CPTitleLbl.Text="🎨  Color Picker"; CPTitleLbl.TextColor3=Color3.fromRGB(220,220,240); CPTitleLbl.Font=Enum.Font.GothamBold; CPTitleLbl.TextSize=12; CPTitleLbl.TextXAlignment=Enum.TextXAlignment.Left
 local CPCloseBtn=Instance.new("TextButton",CPTitle); CPCloseBtn.Size=UDim2.new(0,24,0,24); CPCloseBtn.Position=UDim2.new(1,-32,0.5,-12)
 CPCloseBtn.BackgroundColor3=Color3.fromRGB(220,60,60); CPCloseBtn.Text="✕"; CPCloseBtn.TextColor3=Color3.new(1,1,1); CPCloseBtn.Font=Enum.Font.GothamBold; CPCloseBtn.TextSize=11; CPCloseBtn.AutoButtonColor=false
+CPCloseBtn.Visible=false -- Hidden to force Apply & Close
 Corner(CPCloseBtn,6)
-CPCloseBtn.MouseEnter:Connect(function() Tw(CPCloseBtn,0.15,{BackgroundColor3=Color3.fromRGB(255,90,90)}) end)
-CPCloseBtn.MouseLeave:Connect(function() Tw(CPCloseBtn,0.15,{BackgroundColor3=Color3.fromRGB(220,60,60)}) end)
 
--- CP Preview box
-local CPPreview=Instance.new("Frame",CPPanel); CPPreview.Size=UDim2.new(1,-28,0,42); CPPreview.Position=UDim2.new(0,14,0,44)
-CPPreview.BackgroundColor3=Color3.new(1,1,1); Corner(CPPreview,10);Stroke(CPPreview,Color3.fromRGB(60,60,80),1)
+-- CP Preview box — placed BELOW all sliders at y=198
+-- Layout: Title(0-36) H(44-88) S(96-140) V(148-192) Preview(198-244) Presets(248-274) Apply(282-310)
+local CPPreview=Instance.new("Frame",CPPanel); CPPreview.Size=UDim2.new(1,-28,0,46); CPPreview.Position=UDim2.new(0,14,0,198)
+CPPreview.BackgroundColor3=Color3.new(1,1,1); Corner(CPPreview,12); Stroke(CPPreview,Color3.new(1,1,1),0.6)
 local CPPreviewLbl=Instance.new("TextLabel",CPPreview); CPPreviewLbl.Size=UDim2.new(1,0,1,0); CPPreviewLbl.BackgroundTransparency=1
-CPPreviewLbl.TextColor3=Color3.new(1,1,1); CPPreviewLbl.Font=Enum.Font.GothamBold; CPPreviewLbl.TextSize=11; CPPreviewLbl.TextStrokeTransparency=0.3
+CPPreviewLbl.TextColor3=Color3.new(1,1,1); CPPreviewLbl.Font=Enum.Font.GothamBold; CPPreviewLbl.TextSize=12; CPPreviewLbl.TextStrokeTransparency=0.25
 
 local CP={H=0,S=1,V=1,callback=nil}
 
@@ -376,16 +522,16 @@ end
 
 -- Helper: create CP slider
 local function MakeCPSlider(parent,yPos,label,startVal,onPct)
-    local row=Instance.new("Frame",parent); row.Size=UDim2.new(1,-28,0,40); row.Position=UDim2.new(0,14,0,yPos)
-    row.BackgroundTransparency=1; row.ZIndex=110
-    local lbl=Instance.new("TextLabel",row); lbl.Size=UDim2.new(0,18,0,16); lbl.Position=UDim2.new(0,0,0,0)
-    lbl.BackgroundTransparency=1; lbl.Text=label; lbl.TextColor3=Color3.fromRGB(160,160,185); lbl.Font=Enum.Font.GothamBold; lbl.TextSize=10; lbl.ZIndex=110
-    local val=Instance.new("TextLabel",row); val.Size=UDim2.new(0,40,0,16); val.Position=UDim2.new(1,-40,0,0)
-    val.BackgroundTransparency=1; val.TextColor3=Colors.PrimaryBlue; val.Font=Enum.Font.GothamBold; val.TextSize=10; val.TextXAlignment=Enum.TextXAlignment.Right; val.ZIndex=110
-    local track=Instance.new("Frame",row); track.Size=UDim2.new(1,0,0,9); track.Position=UDim2.new(0,0,0,22)
-    track.BackgroundColor3=Color3.fromRGB(35,35,50); track.BorderSizePixel=0; track.ZIndex=110; track.ClipsDescendants=false
-    Corner(track,5)
-    local fill=Instance.new("Frame",track); fill.Size=UDim2.new(startVal,0,1,0); fill.BackgroundColor3=Colors.PrimaryBlue; fill.BorderSizePixel=0; Corner(fill,5)
+    local row=Instance.new("Frame",parent); row.Size=UDim2.new(1,-24,0,42); row.Position=UDim2.new(0,12,0,yPos)
+    row.BackgroundColor3=Color3.new(1,1,1); row.BackgroundTransparency=0.92; row.BorderSizePixel=0; row.ZIndex=110; Corner(row,8)
+    local lbl=Instance.new("TextLabel",row); lbl.Size=UDim2.new(0,18,0,16); lbl.Position=UDim2.new(0,8,0,4)
+    lbl.BackgroundTransparency=1; lbl.Text=label; lbl.TextColor3=Color3.new(1,1,1); lbl.Font=Enum.Font.GothamBold; lbl.TextSize=11; lbl.ZIndex=111
+    local val=Instance.new("TextLabel",row); val.Size=UDim2.new(0,40,0,16); val.Position=UDim2.new(1,-44,0,4)
+    val.BackgroundTransparency=1; val.TextColor3=Colors.PrimaryBlue; val.Font=Enum.Font.GothamBold; val.TextSize=11; val.TextXAlignment=Enum.TextXAlignment.Right; val.ZIndex=111
+    local track=Instance.new("Frame",row); track.Size=UDim2.new(1,-16,0,8); track.Position=UDim2.new(0,8,0,26)
+    track.BackgroundColor3=Color3.new(1,1,1); track.BackgroundTransparency=0; track.BorderSizePixel=0; track.ZIndex=111; track.ClipsDescendants=false
+    Corner(track,4)
+    local fill=Instance.new("Frame",track); fill.Size=UDim2.new(startVal,0,1,0); fill.BackgroundColor3=Color3.new(1,1,1); fill.BackgroundTransparency=1; fill.BorderSizePixel=0; Corner(fill,5)
     fill.ZIndex=111
     local knob=Instance.new("Frame",track); knob.Size=UDim2.new(0,15,0,15); knob.Position=UDim2.new(startVal,-7.5,0.5,-7.5)
     knob.BackgroundColor3=Color3.new(1,1,1); knob.BorderSizePixel=0; knob.ZIndex=112; Corner(knob,99)
@@ -410,7 +556,8 @@ local function MakeCPSlider(parent,yPos,label,startVal,onPct)
     return fill,val,UpdatePos
 end
 
-local CPHFill,CPHVal,UpdateHSlider=MakeCPSlider(CPPanel,94,"H",CP.H,function(p,vl)
+-- Sliders: H(y=44), S(y=96), V(y=148) — each 44px tall inside 340px panel
+local CPHFill,CPHVal,UpdateHSlider=MakeCPSlider(CPPanel,44,"H",CP.H,function(p,vl)
     CP.H=p; vl.Text=math.floor(p*360).."°"; CPUpdateUI()
 end)
 CPHVal.Text="0°"
@@ -419,14 +566,14 @@ local HueG=Instance.new("UIGradient",CPHFill.Parent)
 HueG.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.fromHSV(0,1,1)),ColorSequenceKeypoint.new(1/6,Color3.fromHSV(1/6,1,1)),ColorSequenceKeypoint.new(2/6,Color3.fromHSV(2/6,1,1)),ColorSequenceKeypoint.new(3/6,Color3.fromHSV(3/6,1,1)),ColorSequenceKeypoint.new(4/6,Color3.fromHSV(4/6,1,1)),ColorSequenceKeypoint.new(5/6,Color3.fromHSV(5/6,1,1)),ColorSequenceKeypoint.new(1,Color3.fromHSV(1,1,1))})
 local CPHFillReal=Instance.new("Frame",CPHFill.Parent); CPHFillReal.Size=UDim2.new(1,0,1,0); CPHFillReal.BackgroundTransparency=1; CPHFillReal.ZIndex=109
 
-local CPSFill,CPSVal,UpdateSSlider=MakeCPSlider(CPPanel,142,"S",CP.S,function(p,vl)
+local CPSFill,CPSVal,UpdateSSlider=MakeCPSlider(CPPanel,96,"S",CP.S,function(p,vl)
     CP.S=p; vl.Text=math.floor(p*100).."%"; CPUpdateUI()
 end)
 CPSVal.Text="100%"
 local SatGrad=Instance.new("UIGradient",CPSFill.Parent)
 SatGrad.Color=ColorSequence.new{ColorSequenceKeypoint.new(0,Color3.new(1,1,1)),ColorSequenceKeypoint.new(1,Color3.fromHSV(CP.H,1,1))}
 
-local CPVFill,CPVVal,UpdateVSlider=MakeCPSlider(CPPanel,190,"V",CP.V,function(p,vl)
+local CPVFill,CPVVal,UpdateVSlider=MakeCPSlider(CPPanel,148,"V",CP.V,function(p,vl)
     CP.V=p; vl.Text=math.floor(p*100).."%"; CPUpdateUI()
 end)
 CPVVal.Text="100%"
@@ -441,51 +588,51 @@ AddConn(RunService.RenderStepped:Connect(function()
     end
 end))
 
--- Quick presets row
-local PresetRow=Instance.new("Frame",CPPanel); PresetRow.Size=UDim2.new(1,-28,0,24); PresetRow.Position=UDim2.new(0,14,0,240)
+-- Quick presets row: y=248 (after Preview at y=198+46+4=248)
+local PresetRow=Instance.new("Frame",CPPanel); PresetRow.Size=UDim2.new(1,-28,0,26); PresetRow.Position=UDim2.new(0,14,0,248)
 PresetRow.BackgroundTransparency=1
-local PLyt=Instance.new("UIListLayout",PresetRow); PLyt.FillDirection=Enum.FillDirection.Horizontal; PLyt.Padding=UDim.new(0,6); PLyt.VerticalAlignment=Enum.VerticalAlignment.Center
+local PLyt=Instance.new("UIListLayout",PresetRow); PLyt.FillDirection=Enum.FillDirection.Horizontal; PLyt.Padding=UDim.new(0,5); PLyt.VerticalAlignment=Enum.VerticalAlignment.Center
 local PresetColors={Color3.new(1,1,1),Color3.fromRGB(255,60,60),Color3.fromRGB(255,180,50),Color3.fromRGB(50,220,80),Color3.fromRGB(30,161,255),Color3.fromRGB(180,80,255),Color3.fromRGB(255,80,150),Color3.fromRGB(50,255,255),Color3.new(0,0,0)}
 for _,pc in ipairs(PresetColors) do
-    local pb=Instance.new("TextButton",PresetRow); pb.Size=UDim2.new(0,20,0,20); pb.BackgroundColor3=pc; pb.Text=""; pb.AutoButtonColor=false
+    local pb=Instance.new("TextButton",PresetRow); pb.Size=UDim2.new(0,21,0,21); pb.BackgroundColor3=pc; pb.Text=""; pb.AutoButtonColor=false
     Corner(pb,99); Stroke(pb,Color3.fromRGB(80,80,100),1)
     pb.MouseButton1Click:Connect(function()
-        local h,s,v=Color3.toHSV(pc); CP.H=h; CP.S=s; CP.V=v; CPUpdateUI()
+        local h,s,v=Color3.toHSV(pc); CP.H=h; CP.S=s; CP.V=v
+        UpdateHSlider(h); UpdateSSlider(s); UpdateVSlider(v); CPUpdateUI()
     end)
 end
 
--- Apply / Done button
-local CPApply=Instance.new("TextButton",CPPanel); CPApply.Size=UDim2.new(1,-28,0,30); CPApply.Position=UDim2.new(0,14,0,272)
-CPApply.BackgroundColor3=Colors.PrimaryBlue; CPApply.Text="✓  Apply"; CPApply.TextColor3=Color3.new(1,1,1); CPApply.Font=Enum.Font.GothamBold; CPApply.TextSize=12; CPApply.AutoButtonColor=false
-Corner(CPApply,8)
+-- Apply button: y=282
+local CPApply=Instance.new("TextButton",CPPanel); CPApply.Size=UDim2.new(1,-28,0,28); CPApply.Position=UDim2.new(0,14,0,282)
+CPApply.BackgroundColor3=Colors.PrimaryBlue; CPApply.Text="✓  Apply & Close"; CPApply.TextColor3=Color3.new(1,1,1); CPApply.Font=Enum.Font.GothamBold; CPApply.TextSize=11; CPApply.AutoButtonColor=false
+Corner(CPApply,9)
 CPApply.MouseEnter:Connect(function() Tw(CPApply,0.15,{BackgroundColor3=Colors.AccentGlow}) end)
 CPApply.MouseLeave:Connect(function() Tw(CPApply,0.15,{BackgroundColor3=Colors.PrimaryBlue}) end)
+CPApply.MouseButton1Down:Connect(function() Tw(CPApply,0.07,{BackgroundColor3=Colors.PrimaryBlue:Lerp(Color3.new(0,0,0),0.2)}) end)
+CPApply.MouseButton1Up:Connect(function() Tw(CPApply,0.12,{BackgroundColor3=Colors.AccentGlow}) end)
 
 local function CloseCPicker()
-    CPDim.Visible=false; Tw(CPPanel,0.2,{Size=UDim2.new(0,248,0,0)})
-    task.delay(0.21,function() CPPanel.Visible=false end)
+    Tw(CPPanel,0.22,{BackgroundTransparency=1})
+    task.delay(0.23,function() CPPanel.Visible=false; CPPanel.BackgroundTransparency=0.45 end)
 end
 
 CPApply.MouseButton1Click:Connect(CloseCPicker)
-CPCloseBtn.MouseButton1Click:Connect(CloseCPicker)
-CPDim.MouseButton1Click:Connect(CloseCPicker)
 
 local function OpenCPicker(c3Key, anchorPos, callback)
     local h,s,v=Color3.toHSV(Config[c3Key] or Color3.new(1,1,1))
     CP.H=h; CP.S=s; CP.V=v
     CP.callback=function(col) Config[c3Key]=col; if callback then callback(col) end end
-    -- Sync slider knob positions to the loaded color
     UpdateHSlider(h); UpdateSSlider(s); UpdateVSlider(v)
-    -- Clamp panel position so it never escapes the screen
-    local vp=Camera.ViewportSize; local pW,pH=252,318
+    CPUpdateUI()
+    local vp=Camera.ViewportSize; local pW,pH=252,320
     local px=math.clamp(anchorPos.X-4, 4, vp.X-pW-4)
     local py=anchorPos.Y+36
     if py+pH > vp.Y-8 then py=anchorPos.Y-pH-8 end
     py=math.clamp(py, 4, vp.Y-pH-4)
     CPPanel.Position=UDim2.new(0,px,0,py)
-    CPPanel.Size=UDim2.new(0,pW,0,0); CPPanel.Visible=true; CPDim.Visible=true
-    TwBack(CPPanel,0.3,{Size=UDim2.new(0,pW,0,pH)})
-    CPUpdateUI()
+    CPPanel.Size=UDim2.new(0,pW,0,pH)
+    CPPanel.BackgroundTransparency=1; CPPanel.Visible=true
+    Tw(CPPanel,0.26,{BackgroundTransparency=0.45})
 end
 
 -- [ STATS HUD ]
@@ -510,6 +657,7 @@ end
 
 -- FOV Circle
 local Circle=Drawing.new("Circle"); Circle.Thickness=1.5; Circle.NumSides=64; Circle.Filled=false; Circle.Transparency=0.75; Circle.Color=Colors.PrimaryBlue; Circle.Visible=false
+_G._PwyvCircle = Circle  -- stored so re-run can remove it
 
 -- [ SAVE / LOAD ]
 local SAVE_FILE="phwyverysad_v8.json"
@@ -552,7 +700,7 @@ local function ApplyTheme(themeName)
     for _,tab in pairs(Tabs) do if tab.Btn.BackgroundTransparency<0.5 then Tw(tab.Btn,0.45,{BackgroundColor3=t.Primary}) end end
     Circle.Color=t.Primary
     Tw(StatStroke,0.45,{Color=t.Primary}); Tw(TitleLine,0.45,{BackgroundColor3=t.Primary}); Tw(DDStroke,0.45,{Color=t.Primary})
-    Tw(CPApply,0.45,{BackgroundColor3=t.Primary})
+    Tw(CPApply,0.45,{BackgroundColor3=t.Primary}); Tw(CPPanelStroke,0.45,{Color=t.Primary})
 end
 
 -- [ WINDOW CONTROLS ]
@@ -925,18 +1073,53 @@ local function IsVisible(tp)
 end
 local function CacheNPC(obj)
     if not obj:IsA("Humanoid") then return end; local char=obj.Parent
-    if char and char:IsA("Model") and char~=LocalPlayer.Character then task.delay(0.1,function() if char.Parent and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("Head") and not Players:GetPlayerFromCharacter(char) then NPCCache[char]=true end end) end
+    if char and char:IsA("Model") and char~=LocalPlayer.Character then
+        task.delay(0.1,function()
+            if char.Parent and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("Head") and not Players:GetPlayerFromCharacter(char) then
+                NPCCache[char]=true
+            end
+        end)
+    end
 end
 task.spawn(function() for i,v in ipairs(workspace:GetDescendants()) do CacheNPC(v); if i%2000==0 then task.wait() end end end)
 AddConn(workspace.DescendantAdded:Connect(CacheNPC))
 
+-- Target Scanner Loop (mirrors AIMLOCK.lua ValidTargets pattern)
 task.spawn(function()
     while State.Running do
-        for char in pairs(ESP_Cache) do
-            local found=false
-            for _,p in ipairs(Players:GetPlayers()) do if p.Character==char then found=true; break end end
-            if not found and not NPCCache[char] then ClearESP(char) end
+        local newTargets = {}
+        local mode = Config.TargetMode  -- 1=Players, 2=NPCs, 3=Both
+        local camPos = Camera.CFrame.Position
+        -- Players
+        if mode==1 or mode==3 then
+            for _,p in ipairs(Players:GetPlayers()) do
+                if p~=LocalPlayer and p.Character then
+                    local hrp=p.Character:FindFirstChild("HumanoidRootPart")
+                    if hrp and (hrp.Position-camPos).Magnitude<=2000 then
+                        newTargets[p.Character]=p.DisplayName or p.Name
+                    end
+                end
+            end
         end
+        -- NPCs
+        if mode==2 or mode==3 then
+            for char in pairs(NPCCache) do
+                local hum=char:FindFirstChild("Humanoid")
+                local hrp=char:FindFirstChild("HumanoidRootPart")
+                if char.Parent and hum and hrp and hum.Health>0 then
+                    if (hrp.Position-camPos).Magnitude<=2000 then
+                        newTargets[char]=char.Name
+                    end
+                else
+                    NPCCache[char]=nil
+                end
+            end
+        end
+        -- Cleanup stale ESP
+        for char in pairs(ESP_Cache) do
+            if not newTargets[char] then ClearESP(char) end
+        end
+        ValidTargets=newTargets
         task.wait(0.5)
     end
 end)
@@ -948,7 +1131,16 @@ local function SetNoclip(on) if NC_Conn then NC_Conn:Disconnect(); NC_Conn=nil e
 local function SetInfJump(on) if IJ_Conn then IJ_Conn:Disconnect(); IJ_Conn=nil end; if on then IJ_Conn=UIS.JumpRequest:Connect(function() local h=LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid"); if h then h:ChangeState(Enum.HumanoidStateType.Jumping) end end) end end
 local function SetGodMode(on) if GM_Conn then GM_Conn:Disconnect(); GM_Conn=nil end; local lpc=LocalPlayer.Character; if not lpc then return end; local h=lpc:FindFirstChildOfClass("Humanoid"); if not h then return end; if on then h.MaxHealth=9e9; h.Health=9e9; h.BreakJointsOnDeath=false; pcall(function() h.RequiresNeck=false end); GM_Conn=h.HealthChanged:Connect(function() if Config.GodMode and h.Health<9e9 then h.Health=9e9 end end) else h.MaxHealth=100; h.Health=100; h.BreakJointsOnDeath=true; pcall(function() h.RequiresNeck=true end) end end
 local function SetAntiAFK(on) if AFK_Conn then AFK_Conn:Disconnect(); AFK_Conn=nil end; if on and VirtualUser then AFK_Conn=LocalPlayer.Idled:Connect(function() VirtualUser:Button2Down(Vector2.new(0,0),Camera.CFrame); task.wait(0.5); VirtualUser:Button2Up(Vector2.new(0,0),Camera.CFrame) end) end end
-local function SetInfZoom(on) LocalPlayer.CameraMaxZoomDistance=on and 10000 or 400 end
+local _origMaxZoom = LocalPlayer.CameraMaxZoomDistance
+local function SetInfZoom(on)
+    if on then
+        _origMaxZoom = LocalPlayer.CameraMaxZoomDistance -- save current
+        LocalPlayer.CameraMaxZoomDistance = math.huge    -- unlimited
+        LocalPlayer.CameraMinZoomDistance = 0            -- also allow zoom in
+    else
+        LocalPlayer.CameraMaxZoomDistance = _origMaxZoom -- restore
+    end
+end
 local function UpdateXray(cache,enabled) if enabled then for _,v in ipairs(workspace:GetDescendants()) do if v:IsA("BasePart") then local ic=v.Parent:FindFirstChildWhichIsA("Humanoid") or (v.Parent.Parent and v.Parent.Parent:FindFirstChildWhichIsA("Humanoid")); if not ic then if not cache[v] then cache[v]=v.LocalTransparencyModifier end; v.LocalTransparencyModifier=0.5 end end end else for p,o in pairs(cache) do pcall(function() if p and p.Parent then p.LocalTransparencyModifier=o end end) end; table.clear(cache) end end
 local function SetFly(on) local lpc=LocalPlayer.Character; if not lpc then return end; local hum=lpc:FindFirstChildOfClass("Humanoid"); local hrp=lpc:FindFirstChild("HumanoidRootPart"); if on and hrp then if FlyBG then pcall(function() FlyBG:Destroy() end) end; if FlyBV then pcall(function() FlyBV:Destroy() end) end; FlyBG=Instance.new("BodyGyro",hrp); FlyBG.P=9e4; FlyBG.MaxTorque=Vector3.new(9e9,9e9,9e9); FlyBG.CFrame=hrp.CFrame; FlyBV=Instance.new("BodyVelocity",hrp); FlyBV.Velocity=Vector3.new(0,0.1,0); FlyBV.MaxForce=Vector3.new(9e9,9e9,9e9); if hum then hum.PlatformStand=true end; pcall(function() lpc.Animate.Disabled=true end) else if FlyBG then pcall(function() FlyBG:Destroy() end); FlyBG=nil end; if FlyBV then pcall(function() FlyBV:Destroy() end); FlyBV=nil end; if hum then hum.PlatformStand=false end; pcall(function() lpc.Animate.Disabled=false end) end end
 local function ApplyFPSBoost() if Config.FPS_NoShadows then pcall(function() Lighting.GlobalShadows=false; Lighting.FogEnd=9e9 end) end; if Config.FPS_LowQuality then pcall(function() settings().Rendering.QualityLevel=1 end) end; if FPS_DescConn then FPS_DescConn:Disconnect(); FPS_DescConn=nil end; local function Proc(inst) if inst:IsDescendantOf(Players) then return end; if Config.FPS_NoParticles and (inst:IsA("ParticleEmitter") or inst:IsA("Trail") or inst:IsA("Smoke") or inst:IsA("Fire") or inst:IsA("Sparkles")) then inst.Enabled=false end; if Config.FPS_NoClothes and (inst:IsA("Clothing") or inst:IsA("SurfaceAppearance") or inst:IsA("BaseWrap")) then pcall(function() inst:Destroy() end); return end; if Config.FPS_LowQuality then if inst:IsA("BasePart") then pcall(function() inst.Material=Enum.Material.Plastic; inst.Reflectance=0 end) end end; if inst:IsA("PostEffect") then pcall(function() inst.Enabled=false end) end end; task.spawn(function() for i,v in ipairs(game:GetDescendants()) do pcall(function() Proc(v) end); if i%1000==0 then task.wait() end end end); FPS_DescConn=game.DescendantAdded:Connect(function(v) task.wait(0.3); pcall(function() Proc(v) end) end) end
@@ -956,25 +1148,52 @@ local function DisableFPSBoost() if FPS_DescConn then FPS_DescConn:Disconnect();
 local function StartSafeTP(tp) if SafeTP_Conn then SafeTP_Conn:Disconnect(); SafeTP_Conn=nil end; SafeTP_Conn=RunService.Heartbeat:Connect(function(dt) if not Config.TPGOSwitch then SafeTP_Conn:Disconnect(); SafeTP_Conn=nil; return end; local myHRP=LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart"); local tHRP=tp.Character and tp.Character:FindFirstChild("HumanoidRootPart"); if not(myHRP and tHRP) then return end; if (tHRP.Position-myHRP.Position).Magnitude>4 then myHRP.CFrame=myHRP.CFrame:Lerp(CFrame.new(tHRP.Position+tHRP.CFrame.LookVector*3+Vector3.new(0,2,0)),math.clamp(dt*math.clamp(Config.TPFlightSens,10,500)*0.12,0.01,0.4)) end end) end
 local function StopSafeTP() if SafeTP_Conn then SafeTP_Conn:Disconnect(); SafeTP_Conn=nil end end
 
+local function ProcessInteractObj(obj)
+    if obj:IsA("ProximityPrompt") then
+        if not OriginalInteractData[obj] then OriginalInteractData[obj]={Duration=obj.HoldDuration,Distance=obj.MaxActivationDistance} end
+        obj.HoldDuration = Config.InstantPress and 0 or OriginalInteractData[obj].Duration
+        obj.MaxActivationDistance = Config.AuraRange and 30 or OriginalInteractData[obj].Distance
+    elseif obj:IsA("ClickDetector") then
+        if not OriginalInteractData[obj] then OriginalInteractData[obj]={Distance=obj.MaxActivationDistance} end
+        obj.MaxActivationDistance = Config.AuraRange and 50 or OriginalInteractData[obj].Distance
+    end
+end
+local function UpdateInteractables()
+    for _,obj in ipairs(workspace:GetDescendants()) do pcall(ProcessInteractObj,obj) end
+end
+AddConn(workspace.DescendantAdded:Connect(function(obj) task.wait(0.1); pcall(ProcessInteractObj,obj) end))
+
 LocalPlayer.CharacterAdded:Connect(function() task.wait(0.7); FlyBG=nil; FlyBV=nil; if Config.GodMode then SetGodMode(true) end; if Config.WSToggle then SetWalkSpeed(true) end; if Config.JPToggle then SetJumpPower(true) end; if Config.Noclip then SetNoclip(true) end; if Config.InfJump then SetInfJump(true) end; if Config.FlyToggle then SetFly(true) end; if Config.InfZoom then SetInfZoom(true) end end)
 AddConn(RunService.RenderStepped:Connect(function() frameCount=frameCount+1 end))
 task.spawn(function() while State.Running do task.wait(1); lastFPS=frameCount; frameCount=0; pcall(function() pingValue=math.round(Stats.Network.ServerStatsItem["Data Ping"]:GetValue()) end) end end)
-
--- [ BUILD TABS ]
 
 -- TAB 1: AIMLOCK
 local T1=BuildTab("Aimlock")
 T1:Section("AIMLOCK","ล็อกเป้าอัตโนมัติ")
 T1:Toggle("AIMLOCK","เปิดใช้งาน Aimlock","Aimlock",function(v) if not v then LockedTarget=nil; State.ToggleAiming=false end end)
+
 T1:Dropdown("MODE","TOGGLE | HOLD | ALWAYS ON","AimMode",{"TOGGLE","HOLD","ALWAYS ON"})
+
+local TargetModeNames = {"PLAYERS ONLY", "NPCs ONLY", "PLAYERS & NPCs"}
+local TargetCycleBtn
+do
+    local tNames = TargetModeNames
+    local function GetLabel() return "🎯 เป้าหมาย: " .. tNames[Config.TargetMode] end
+    TargetCycleBtn = T1:Button(GetLabel(), Colors.PrimaryBlue, function()
+        Config.TargetMode = (Config.TargetMode % 3) + 1
+        LockedTarget = nil; ValidTargets = {}
+        TargetCycleBtn.Text = GetLabel()
+        Tw(TargetCycleBtn,0.15,{BackgroundColor3=Colors.AccentGlow})
+        task.delay(0.4,function() Tw(TargetCycleBtn,0.35,{BackgroundColor3=Colors.PrimaryBlue}) end)
+    end)
+end
+T1:Toggle("ENEMY ONLY","ล็อกเฉพาะฝั่งตรงข้าม (ต่างทีม)","EnemyOnly")
 T1:Bind("BIND","ปุ่มสำหรับ Aimlock","BindType","BindKey")
-T1:Slider("FOV SIZE","ขนาดวงกลมเล็ง","FOV",1,130,"%",false)
+T1:Slider("FOV SIZE","ขนาดวงกลมเล็ง","FOV",1,200,"%",false)
 T1:Slider("SMOOTHNESS","ลื่น=เล็ก ช้า=ใหญ่","AimSmooth",0.01,1,"",true)
 T1:ColorPicker("FOV COLOR","สีของวงกลม FOV","FOVColor_C3")
 T1:Toggle("WALL CHECK","ตรวจกำแพงด้วย Raycast","WallCheck")
-T1:Section("TARGET MODE","เป้าหมายสำหรับ Aimlock")
-T1:Dropdown("TARGET TYPE","Players | NPCs | Both","TargetMode",{"Players","NPCs","Both"})
-T1:Toggle("ENEMY ONLY","ล็อกเฉพาะฝั่งตรงข้าม (ต่างทีม)","EnemyOnly")
+
 T1:Section("MASTER ESP","ESP สำหรับทุกเป้าหมาย")
 T1:Toggle("MASTER ESP","เปิด ESP หลัก","ESPMaster")
 T1:Toggle("SHOW NAME","แสดงชื่อ","ESPShowName"); T1:Toggle("SHOW HEALTH","แสดง HP","ESPShowHealth")
@@ -1019,11 +1238,18 @@ T3:Slider("Fly Speed","ความเร็วบิน","FlySpeed",5,500,"",fa
 T3:Toggle("No Clip","เดินทะลุกำแพง","Noclip",function(v) SetNoclip(v) end)
 T3:Toggle("Infinite Zoom","ซูมได้ไม่จำกัด","InfZoom",function(v) SetInfZoom(v) end)
 T3:Section("Camera","ปรับมุมมองกล้อง")
-T3:Toggle("Custom FOV","ปรับ FieldOfView","FOVToggle")
-T3:Slider("FOV Angle","มุมกล้อง (70 = ปกติ)","FOVView",30,120,"°",false)
-T3:Section("Survival","ความอยู่รอด")
-T3:Toggle("God Mode","อมตะ HP = 9e9","GodMode",function(v) SetGodMode(v) end)
-T3:Toggle("Anti-AFK","กันถูกเตะ AFK","AntiAFK",function(v) SetAntiAFK(v) end)
+T3:Toggle("Custom FOV","ปรับ FieldOfView","FOVToggle",function(v)
+    if v then pcall(function() Camera.FieldOfView=Config.FOVView end)
+    else pcall(function() Camera.FieldOfView=70 end) end
+end)
+T3:Slider("FOV Angle","มุมกล้อง (70 = ปกติ)","FOVView",30,360,"°",false,function(v)
+    if Config.FOVToggle then pcall(function() Camera.FieldOfView=v end) end
+end)
+T3:Section("Facilities","สิ่งอำนวยความสะดวก")
+T3:Toggle("Instant Press","กด E ไม่ต้องรอหลอดเต็ม","InstantPress",function() UpdateInteractables() end)
+T3:Toggle("Aura Range","เพิ่มระยะกดให้ไกลขึ้น","AuraRange",function() UpdateInteractables() end)
+T3:Toggle("God Mode","อมตะ","GodMode",function(v) SetGodMode(v) end)
+T3:Toggle("Anti-AFK","ป้องกัน AFK","AntiAFK",function(v) SetAntiAFK(v) end)
 T3:Section("Performance","เพิ่ม FPS")
 T3:Toggle("Booster FPS","เปิด FPS Booster","FPSBooster",function(v) if v then ApplyFPSBoost() else DisableFPSBoost() end end)
 T3:Toggle("No Shadows","ปิดเงา","FPS_NoShadows"); T3:Toggle("No Particles","ปิด Particle / Fire / Smoke","FPS_NoParticles")
@@ -1053,6 +1279,62 @@ T4:Toggle("Enable Spectate","เปิดดูจอผู้เล่น","Spe
 T4:Section("Click Teleport","กดปุ่มที่กำหนด + คลิกซ้าย")
 T4:Bind("Click TP Key","กดปุ่มนี้ค้างไว้ขณะคลิก","ClickTPBindType","ClickTPBindKey")
 T4:Toggle("Enable Click TP","เปิด Click Teleport","ClickTPToggle")
+
+-- TAB 5: SERVER
+local T5=BuildTab("Server")
+
+local nameBtn = T5:Button("🎮 Name: Loading...", Colors.PrimaryBlue, function()
+    -- Copy everything after "🎮 Name: "
+    local name = nameBtn.Text:sub(11)
+    if setclipboard then setclipboard(name); ShowToast("✅ คัดลอกชื่อเกมแล้ว!", Colors.Green) end
+end)
+task.spawn(function()
+    pcall(function()
+        local info = game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId)
+        if info and info.Name then nameBtn.Text = "🎮 Name: " .. info.Name
+        else nameBtn.Text = "🎮 Name: " .. game.Name end
+    end)
+end)
+
+T5:Button("👤 Creator ID: "..tostring(game.CreatorId), Color3.fromRGB(52,52,72), function()
+    if setclipboard then setclipboard(tostring(game.CreatorId)); ShowToast("✅ คัดลอก Creator ID แล้ว!", Colors.Green) end
+end)
+
+T5:Button("🆔 Place ID: "..tostring(game.PlaceId), Color3.fromRGB(52,52,72), function()
+    if setclipboard then setclipboard(tostring(game.PlaceId)); ShowToast("✅ คัดลอก Place ID แล้ว!", Colors.Green) end
+end)
+
+T5:Button("🔑 Job ID: "..tostring(game.JobId), Color3.fromRGB(52,52,72), function()
+    if setclipboard then setclipboard(tostring(game.JobId)); ShowToast("✅ คัดลอก Job ID แล้ว!", Colors.Green) end
+end)
+
+T5:Button("🔗 Direct Join Link", Colors.PrimaryBlue, function()
+    local link = "roblox://experiences/start?placeId="..tostring(game.PlaceId).."&gameInstanceId="..tostring(game.JobId)
+    if setclipboard then setclipboard(link); ShowToast("✅ คัดลอก Link แบบเข้าอัตโนมัติแล้ว!", Colors.Green) end
+end)
+
+T5:Button("💻 JS Join Script (Browser Console)", Color3.fromRGB(52,52,72), function()
+    local code = "Roblox.GameLauncher.joinGameInstance("..tostring(game.PlaceId)..", '"..tostring(game.JobId).."');"
+    if setclipboard then setclipboard(code); ShowToast("✅ คัดลอก JS Script แล้ว!", Colors.Green) end
+end)
+
+T5:Button("🔄 Rejoin Server", Color3.fromRGB(46, 204, 113), function()
+    ShowToast("กำลังเชื่อมต่อใหม่...", Colors.PrimaryBlue)
+    local ts = game:GetService("TeleportService")
+    if #Players:GetPlayers() <= 1 then
+        LocalPlayer:Kick("\nRejoining...")
+        task.wait()
+        ts:Teleport(game.PlaceId, LocalPlayer)
+    else
+        ts:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
+    end
+end)
+
+T5:Button("🚪 Server Hop", Colors.Green, function()
+    ShowToast("กำลังเปลี่ยนเซิร์ฟเวอร์...", Colors.PrimaryBlue)
+    local ts = game:GetService("TeleportService")
+    ts:Teleport(game.PlaceId, LocalPlayer)
+end)
 
 -- [ INPUT HANDLERS ]
 AddConn(UIS.InputBegan:Connect(function(input,gp)
@@ -1089,7 +1371,10 @@ AddConn(RunService.RenderStepped:Connect(function()
     else StatHUD.Visible=false end
 
     local LPChar=LocalPlayer.Character; local LPHum=LPChar and LPChar:FindFirstChildOfClass("Humanoid"); local LPHRP=LPChar and LPChar:FindFirstChild("HumanoidRootPart")
-    Camera.FieldOfView=Config.FOVToggle and Config.FOVView or 70
+    -- Custom FOV: force every frame when enabled
+    if Config.FOVToggle then
+        pcall(function() Camera.FieldOfView = Config.FOVView end)
+    end
 
     -- Fly
     if Config.FlyToggle and FlyBV and FlyBG and LPHRP then
@@ -1133,78 +1418,98 @@ AddConn(RunService.RenderStepped:Connect(function()
     end
     if not isAimingNow then LockedTarget=nil end
 
-    local center=Vector2.new(vp.X/2,vp.Y/2); local bestHead,bestDist=nil,math.huge
+    local center=Vector2.new(vp.X/2,vp.Y/2); local bestHead,bestScore=nil,math.huge
+    local LPHRP2=LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
 
-    -- Player ESP + Aimlock
-    if Config.TargetMode~="NPCs" then
-        for _,p in ipairs(Players:GetPlayers()) do
-            if p~=LocalPlayer and p.Character then
-                local char=p.Character; local head=char:FindFirstChild("Head"); local hrp=char:FindFirstChild("HumanoidRootPart"); local hum=char:FindFirstChildOfClass("Humanoid")
-                if not(head and hrp and hum and hum.Health>0) then local e=ESP_Cache[char]; if e then e.Gui.Enabled=false; e.Highlight.Enabled=false end; continue end
-                local esp=GetESP(char); local rPos,rVis=Camera:WorldToViewportPoint(hrp.Position); local scr2D=Vector2.new(rPos.X,rPos.Y)
-                local inFOV=rVis and (scr2D-center).Magnitude<=Circle.Radius
-                local hpPct=math.floor((hum.Health/math.max(hum.MaxHealth,1))*100)
-                local useP=Config.P_Master; local useMst=Config.ESPMaster
-                local showESP=(useP or useMst) and rVis and rPos.Z>0 and rPos.Z<2000
-                -- ESP In FOV Only (Player ESP)
-                if useP and Config.P_ESPInFOVOnly and not inFOV then showESP=false end
-                -- Team check (hide same team)
-                if showESP then
-                    local skipTeam=((useP and Config.P_TeamCheck) or (useMst and Config.ESPTeamCheck)) and (p.Team==LocalPlayer.Team)
-                    if skipTeam then showESP=false end
-                end
-                if showESP then
-                    local teamColorOk=(useP and Config.P_TeamColor) or (useMst and Config.ESPTeamColor)
-                    local col=teamColorOk and p.TeamColor.Color or (useP and Config.P_Color_C3 or Config.ESPColor_C3)
-                    esp.Gui.Adornee=head; esp.Gui.Enabled=true
-                    local info={}
-                    if (useP and Config.P_ShowName) or (useMst and Config.ESPShowName) then table.insert(info,p.DisplayName or p.Name) end
-                    if (useP and Config.P_ShowHealth) or (useMst and Config.ESPShowHealth) then table.insert(info,"HP: "..hpPct.."%") end
-                    if (useP and Config.P_ShowDist) or (useMst and Config.ESPShowDistance) then table.insert(info,"["..math.floor(rPos.Z).."m]") end
-                    esp.Label.Text=table.concat(info,"\n"); esp.Label.TextColor3=col; esp.Label.TextSize=useP and Config.P_TextSize or Config.ESPTextSize
-                    local showHL=(useP and Config.P_Highlight) or (useMst and Config.ESPHighlight)
-                    esp.Highlight.Adornee=char; esp.Highlight.Enabled=showHL; esp.Highlight.FillColor=col
-                    esp.Highlight.FillTransparency=useP and Config.P_FillTrans or Config.ESPFillTrans; esp.Highlight.OutlineColor=col
-                    esp.Highlight.OutlineTransparency=useP and Config.P_OutlineTrans or Config.ESPOutlineTrans
-                else esp.Gui.Enabled=false; esp.Highlight.Enabled=false end
-                -- Aimlock candidate check (EnemyOnly)
-                local isEnemy=not Config.EnemyOnly or (p.Team~=LocalPlayer.Team)
-                if isAimingNow and not LockedTarget and inFOV and rVis and rPos.Z>0 and isEnemy then
-                    local dist=(scr2D-center).Magnitude; if dist<bestDist and IsVisible(head) then bestHead=head; bestDist=dist end
-                end
-                if LockedTarget==head and (hum.Health<=0 or not IsVisible(head)) then LockedTarget=nil end
+    -- ── ESP + Aimlock using ValidTargets (same as AIMLOCK.lua pattern) ──
+    for char, nameStr in pairs(ValidTargets) do
+        local head=char:FindFirstChild("Head")
+        local hrp=char:FindFirstChild("HumanoidRootPart")
+        local hum=char:FindFirstChildOfClass("Humanoid")
+        if not(head and hrp and hum and hum.Health>0 and char.Parent) then
+            local e=ESP_Cache[char]; if e then e.Gui.Enabled=false; e.Highlight.Enabled=false end
+            continue
+        end
+        local esp=GetESP(char)
+        local rPos,rVis=Camera:WorldToViewportPoint(hrp.Position)
+        local scr2D=Vector2.new(rPos.X,rPos.Y)
+        local inFOV=rVis and (scr2D-center).Magnitude<=Circle.Radius
+        local hpPct=math.floor((hum.Health/math.max(hum.MaxHealth,1))*100)
+
+        -- Determine if this is a Player or NPC
+        local ownerPlayer=Players:GetPlayerFromCharacter(char)
+        local isPlayer=(ownerPlayer~=nil)
+
+        -- ── ESP Display ──
+        local useP   = isPlayer and Config.P_Master
+        local useMst = Config.ESPMaster
+        local showESP = (useP or useMst) and rVis and rPos.Z>0 and rPos.Z<2000
+
+        if useP and Config.P_ESPInFOVOnly and not inFOV then showESP=false end
+        if showESP and isPlayer then
+            local p=ownerPlayer
+            local skipTeam=((useP and Config.P_TeamCheck) or (useMst and Config.ESPTeamCheck)) and (p.Team==LocalPlayer.Team)
+            if skipTeam then showESP=false end
+        end
+
+        if showESP then
+            local col
+            if isPlayer then
+                local p=ownerPlayer
+                local teamColorOk=(useP and Config.P_TeamColor) or (useMst and Config.ESPTeamColor)
+                col=teamColorOk and p.TeamColor.Color or (useP and Config.P_Color_C3 or Config.ESPColor_C3)
+            else
+                col=Config.ESPColor_C3 or Color3.new(1,1,1)
+            end
+            esp.Gui.Adornee=head; esp.Gui.Enabled=true
+            local info={}
+            local showNm=(isPlayer and ((useP and Config.P_ShowName) or (useMst and Config.ESPShowName))) or (not isPlayer and Config.ESPShowName)
+            local showHP=(isPlayer and ((useP and Config.P_ShowHealth) or (useMst and Config.ESPShowHealth))) or (not isPlayer and Config.ESPShowHealth)
+            local showDs=(isPlayer and ((useP and Config.P_ShowDist) or (useMst and Config.ESPShowDistance))) or (not isPlayer and Config.ESPShowDistance)
+            if showNm then table.insert(info, isPlayer and (ownerPlayer.DisplayName or ownerPlayer.Name) or char.Name) end
+            if showHP then table.insert(info,"HP: "..hpPct.."%") end
+            if showDs then table.insert(info,"["..math.floor(rPos.Z).."m]") end
+            esp.Label.Text=table.concat(info,"\n"); esp.Label.TextColor3=col
+            esp.Label.TextSize=isPlayer and (useP and Config.P_TextSize or Config.ESPTextSize) or Config.ESPTextSize
+            local showHL=(isPlayer and ((useP and Config.P_Highlight) or (useMst and Config.ESPHighlight))) or (not isPlayer and Config.ESPHighlight)
+            esp.Highlight.Adornee=char; esp.Highlight.Enabled=showHL; esp.Highlight.FillColor=col
+            local fillT=isPlayer and (useP and Config.P_FillTrans or Config.ESPFillTrans) or Config.ESPFillTrans
+            local outT=isPlayer and (useP and Config.P_OutlineTrans or Config.ESPOutlineTrans) or Config.ESPOutlineTrans
+            esp.Highlight.FillTransparency=fillT; esp.Highlight.OutlineColor=col; esp.Highlight.OutlineTransparency=outT
+        else
+            esp.Gui.Enabled=false; esp.Highlight.Enabled=false
+        end
+
+        -- ── Aimlock Candidate: combined screen + world distance score ──
+        if isAimingNow and not LockedTarget and inFOV and rVis and rPos.Z>0 then
+            local isEnemy=true
+            if isPlayer and Config.EnemyOnly then
+                isEnemy=(ownerPlayer.Team~=LocalPlayer.Team)
+            end
+            if isEnemy and IsVisible(head) then
+                local scrDist=(scr2D-center).Magnitude                    -- px distance to FOV center
+                local wldDist=LPHRP2 and (hrp.Position-LPHRP2.Position).Magnitude or 0  -- 3D world studs
+                -- Normalize: scrDist already in px (0..Circle.Radius), wldDist in studs (0..2000)
+                local normScr=scrDist/(Circle.Radius+0.001)
+                local normWld=wldDist/2000
+                -- Combined score: screen dist weighted 70%, world dist 30%
+                local score=normScr*0.7 + normWld*0.3
+                if score<bestScore then bestHead=head; bestScore=score end
             end
         end
+        -- Invalidate locked target if dead or behind wall
+        if LockedTarget==head and (hum.Health<=0 or not IsVisible(head)) then LockedTarget=nil end
     end
 
-    -- NPC ESP
-    if Config.ESPMaster and (Config.TargetMode=="NPCs" or Config.TargetMode=="Both") then
-        for char in pairs(NPCCache) do
-            local h2=char:FindFirstChild("Head"); local hrp3=char:FindFirstChild("HumanoidRootPart"); local hum3=char:FindFirstChild("Humanoid")
-            if h2 and hrp3 and hum3 and hum3.Health>0 and char.Parent then
-                local esp2=GetESP(char); local rP2,rV2=Camera:WorldToViewportPoint(hrp3.Position)
-                if rV2 and rP2.Z>0 and rP2.Z<2000 then
-                    local hp3=math.floor((hum3.Health/math.max(hum3.MaxHealth,1))*100)
-                    local c3=Config.ESPColor_C3 or Color3.new(1,1,1)
-                    esp2.Gui.Adornee=h2; esp2.Gui.Enabled=true
-                    local inf2={}; if Config.ESPShowName then table.insert(inf2,char.Name) end; if Config.ESPShowHealth then table.insert(inf2,"HP: "..hp3.."%") end; if Config.ESPShowDistance then table.insert(inf2,"["..math.floor(rP2.Z).."m]") end
-                    esp2.Label.Text=table.concat(inf2,"\n"); esp2.Label.TextColor3=c3; esp2.Label.TextSize=Config.ESPTextSize
-                    esp2.Highlight.Adornee=char; esp2.Highlight.Enabled=Config.ESPHighlight; esp2.Highlight.FillColor=c3; esp2.Highlight.FillTransparency=Config.ESPFillTrans
-                    local s2D=Vector2.new(rP2.X,rP2.Y); local inF2=(s2D-center).Magnitude<=Circle.Radius
-                    if isAimingNow and not LockedTarget and inF2 then local d2=(s2D-center).Magnitude; if d2<bestDist and IsVisible(h2) then bestHead=h2; bestDist=d2 end end
-                    if LockedTarget==h2 and (hum3.Health<=0 or not IsVisible(h2)) then LockedTarget=nil end
-                else esp2.Gui.Enabled=false; esp2.Highlight.Enabled=false end
-            end
-        end
-    end
-
-    -- Lock & aim
+    -- ── Lock & Aim ──
     if isAimingNow and not LockedTarget and bestHead then LockedTarget=bestHead end
     if isAimingNow and LockedTarget then
         if LockedTarget and LockedTarget.Parent then
             local lhum=LockedTarget.Parent:FindFirstChildOfClass("Humanoid")
             if lhum and lhum.Health>0 and IsVisible(LockedTarget) then
-                Camera.CFrame=Camera.CFrame:Lerp(CFrame.lookAt(Camera.CFrame.Position,LockedTarget.Position),math.clamp(Config.AimSmooth,0.01,1))
+                Camera.CFrame=Camera.CFrame:Lerp(
+                    CFrame.lookAt(Camera.CFrame.Position,LockedTarget.Position),
+                    math.clamp(Config.AimSmooth,0.01,1))
             else LockedTarget=nil end
         else LockedTarget=nil end
     end
