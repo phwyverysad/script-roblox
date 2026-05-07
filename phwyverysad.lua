@@ -321,6 +321,7 @@ local initialConfig = {
     P_Master = false, P_ShowName = true, P_ShowHealth = true, P_ShowDist = true, P_Highlight = true, P_TeamCheck = false, P_TeamColor = false, P_Xray = false, P_TextSize = 10, P_FillTrans = 0.5, P_OutlineTrans = 0.1, P_HitboxToggle = false, P_HitboxSize = 32, HitboxTargetMode = "PLAYERS ONLY", P_Color_C3 = Color3.new(1,1,1), P_ESPInFOVOnly = false,
     WalkSpeed = 100, WSToggle = false, JumpPower = 100, JPToggle = false, InfJump = false, FlyToggle = false, FlySpeed = 100, Noclip = false, InfZoom = true, InvisToggle = false, FOVToggle = false, FOVView = 70, FOVColor_C3 = Color3.fromRGB(30,161,255),
 AntiAFK = true, FPSBooster = false, FPS_NoShadows = true, FPS_NoParticles = true, FPS_NoClothes = true, FPS_LowQuality = true, HipHeightToggle = false, HipHeightValue = 50, InstantPress = true, AuraRange = false,
+    RTX_Enabled = false, ChangeSky_Enabled = false, ChangeSky_Selected = "Anime-sky",
     ShowFPSPing = "FPS & Ping", ShowStatsToggle = true, HUDPosition = "TopRight", TPTarget = "-", TPMode = "Warp", TPFlightSens = 80, TPGOSwitch = false, SpecTarget = "-", SpecToggle = false, ClickTPToggle = false, ClickTPBindType = "Keyboard", ClickTPBindKey = nil, MenuToggleBindType = "Keyboard", MenuToggleBindKey = Enum.KeyCode.G, MenuVisible = true, Theme = "Midnight", 
     GithubURL = "https://github.com/phwyverysad",
     -- Keybinds System: เก็บการตั้งค่าปุ่มสำหรับแต่ละฟีเจอร์
@@ -1780,6 +1781,125 @@ local function SetInvisibility(on)
     end
 end
 
+-- [ GRAPHIC / SKY SYSTEM ]
+local OriginalSky = nil
+pcall(function()
+    for _, obj in ipairs(Lighting:GetChildren()) do
+        if obj:IsA("Sky") then OriginalSky = obj:Clone(); break end
+    end
+end)
+
+local SkyOptions = {
+    ["Anime-sky"] = "13107361022",
+    ["Obby-Sky"] = "127719608807122",
+    ["CakeUp-Night-Sky-Galaxy-Planets"] = "15983996673",
+    ["Night-sky"] = "90988519",
+    ["Pink-sky"] = "8202961731",
+    ["Night-Sky-With-Effects"] = "4951222008",
+    ["Sky"] = "116402178504134",
+    ["Starry-night-sky"] = "911025794",
+    ["Space-Sky"] = "11675661848",
+    ["Cartoon-Sky"] = "15313376186",
+    ["Galaxy-Nebula-Space-Sky"] = "18618101697",
+    ["Map-Minecraft-Sky"] = "10594760952",
+    ["Minecraft-Sky"] = "8735253332",
+    ["Galaxy-Sky"] = "11284918730",
+    ["Clear-Blue-Sky-Skybox"] = "18586545848",
+    ["Space-Sky-HD"] = "16262385808",
+    ["Green-Screen-Sky-by-Flebsy"] = "5222782366",
+    ["Great-Ocean-Road-Sky"] = "15502603038",
+    ["Nebulous-Night-Sky"] = "136350850692118"
+}
+
+local SkyList = {
+    "Anime-sky",
+    "Obby-Sky",
+    "CakeUp-Night-Sky-Galaxy-Planets",
+    "Night-sky",
+    "Pink-sky",
+    "Night-Sky-With-Effects",
+    "Sky",
+    "Starry-night-sky",
+    "Space-Sky",
+    "Cartoon-Sky",
+    "Galaxy-Nebula-Space-Sky",
+    "Map-Minecraft-Sky",
+    "Minecraft-Sky",
+    "Galaxy-Sky",
+    "Clear-Blue-Sky-Skybox",
+    "Space-Sky-HD",
+    "Green-Screen-Sky-by-Flebsy",
+    "Great-Ocean-Road-Sky",
+    "Nebulous-Night-Sky"
+}
+
+local function ApplySkyById(assetId)
+    pcall(function()
+        local objects = game:GetObjects("rbxassetid://"..assetId)
+        local newSky = nil
+        for _, obj in pairs(objects) do
+            if obj:IsA("Sky") then newSky = obj; break
+            elseif obj:FindFirstChildWhichIsA("Sky") then newSky = obj:FindFirstChildWhichIsA("Sky"); break end
+        end
+        if newSky then
+            for _, oldObj in ipairs(Lighting:GetChildren()) do
+                if oldObj:IsA("Sky") then oldObj:Destroy() end
+            end
+            newSky.Parent = Lighting
+        end
+    end)
+end
+
+local function ResetSky()
+    pcall(function()
+        for _, oldObj in ipairs(Lighting:GetChildren()) do
+            if oldObj:IsA("Sky") then oldObj:Destroy() end
+        end
+        if OriginalSky then
+            local cloned = OriginalSky:Clone()
+            cloned.Parent = Lighting
+        end
+    end)
+end
+
+local function SetChangeSky(on)
+    if on then
+        local id = SkyOptions[Config.ChangeSky_Selected]
+        if id then ApplySkyById(id) end
+    else
+        ResetSky()
+    end
+end
+
+local RTXLoaded = false
+local function SetRTX(on)
+    if on and not RTXLoaded then
+        ShowConfirm(
+            "ระวัง! Ray Tracing กินทรัพยากรสูง",
+            "การเปิดใช้งาน Ray Tracing จะกินทรัพยากรเครื่องมากขึ้น อาจทำให้เกมกระตุกหรือ FPS ตก คุณต้องการเปิดใช้งานหรือไม่?",
+            function()
+                pcall(function()
+                    loadstring(game:HttpGet("https://raw.githubusercontent.com/phwyverysad/script-roblox/refs/heads/main/rtx.lua"))()
+                end)
+                RTXLoaded = true
+                Config.RTX_Enabled = true
+                pcall(function() UpdateToggleUIFromKeybind("RTX_Enabled") end)
+                ShowToast("✅ เปิด Ray Tracing แล้ว", Colors.Green)
+            end
+        )
+        -- ถ้ายกเลิก confirm ให้ rollback toggle เป็น false
+        task.delay(0.05, function()
+            if not RTXLoaded then
+                Config.RTX_Enabled = false
+                pcall(function() UpdateToggleUIFromKeybind("RTX_Enabled") end)
+            end
+        end)
+    elseif not on then
+        Config.RTX_Enabled = false
+        ShowToast("❌ Ray Tracing ไม่สามารถปิดได้ทันที กรุณารันสคริปต์ใหม่หากต้องการปิด", Colors.Red)
+    end
+end
+
 local function SetWalkSpeed(on)
     if WS_Loop then WS_Loop:Disconnect(); WS_Loop=nil end
     if on then
@@ -2182,6 +2302,11 @@ task.spawn(function()
     if Config.ShowStatsToggle then
         pcall(function() StatsHUD_Frame.Visible = true end)
     end
+    -- Apply Change Sky if enabled
+    if Config.ChangeSky_Enabled then
+        local id = SkyOptions[Config.ChangeSky_Selected]
+        if id then ApplySkyById(id) end
+    end
 end)
 
 task.spawn(function() while State.Running do task.wait(1); Stats.lastFPS = Stats.frameCount; Stats.frameCount = 0; pcall(function() Stats.pingValue = math.round(game:GetService("Stats").Network.ServerStatsItem["Data Ping"]:GetValue()) end) end end)
@@ -2286,6 +2411,20 @@ T3:Section("Save/Load Configuration","ระบบจัดการการต
 T3:Button(" Save My Settings",Colors.PrimaryBlue,SaveSettings)
 T3:Button(" Load Settings",Color3.fromRGB(52,52,72),LoadSettings)
 
+
+-- TAB 3.5: GRAPHIC
+local TG=BuildTab("Graphic")
+TG:Section("Ray Tracing","ระบบเพิ่มความสวยงามด้วยแสงเงาสมจริง (กินทรัพยากรสูง)")
+TG:Toggle("Ray Tracing","เพิ่มความสวยงามด้วย Ray Tracing (กินทรัพยากรสูง)","RTX_Enabled",function(v) SetRTX(v) end,nil,"RTX_Enabled")
+
+TG:Section("Change the Sky","ระบบเปลี่ยนท้องฟ้าและบรรยากาศ")
+TG:Toggle("Change Sky","เปิดใช้งานการเปลี่ยนท้องฟ้าและบรรยากาศ","ChangeSky_Enabled",function(v) SetChangeSky(v) end,nil,"ChangeSky_Enabled")
+TG:Dropdown("Sky Selection","เลือกท้องฟ้าที่ต้องการ","ChangeSky_Selected",SkyList,false,function(v)
+    if Config.ChangeSky_Enabled then
+        local id = SkyOptions[v]
+        if id then ApplySkyById(id) end
+    end
+end)
 
 -- TAB 4: TELEPORT
 local T4=BuildTab("Player Teleport")
@@ -2424,7 +2563,9 @@ local function ProcessKeybinds(input)
                         P_TeamColor = "ESP Team Color", P_TeamCheck = "ESP Ignore Team",
                         P_Xray = "ESP X-Ray", SpecToggle = "Spectator Mode",
                         EnemyOnly = "Enemy Only", WallCheck = "Wall Check",
-                        HipHeightToggle = "Hip Height Float"
+                        HipHeightToggle = "Hip Height Float",
+                        RTX_Enabled = "Ray Tracing",
+                        ChangeSky_Enabled = "Change Sky"
                     }
                     local name = featureNames[featureKey] or featureKey
                     local emoji = newValue and "✅" or "❌"
@@ -2453,6 +2594,8 @@ local function ProcessKeybinds(input)
                     if featureKey == "Aimlock" then if not newValue then LockedTarget=nil; State.ToggleAiming=false end end
                     if featureKey == "HipHeightToggle" then SetHipHeight(newValue) end
                     if featureKey == "RemoveFog_Toggle" then SetRemoveFog(newValue) end
+                    if featureKey == "RTX_Enabled" then SetRTX(newValue) end
+                    if featureKey == "ChangeSky_Enabled" then SetChangeSky(newValue) end
                     return true
                 end
             end
