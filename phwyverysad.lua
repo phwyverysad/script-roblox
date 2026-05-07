@@ -137,72 +137,255 @@ for _, n in ipairs({"PhwyverysadModMenu","PhwyverysadDropdowns","PhwyverysadCPic
     local g = CoreGui:FindFirstChild(n); if g then g:Destroy() end
 end
 
+-- [ COMPREHENSIVE CLEANUP - ลบทุกอย่างที่สคริปสร้างไว้ ]
+local function ComprehensiveCleanup()
+    -- 1. ลบ GUI ทั้งหมดใน CoreGui
+    local guiNames = {
+        "PhwyverysadModMenu",
+        "PhwyverysadDropdowns", 
+        "PhwyverysadCPicker",
+        "NexusESP_Folder",
+        "PhwyverysadESP",
+        "PhwyToastContainer",
+        "AimlockFOVCircle",
+        "PhwyHUD"
+    }
+    for _, name in ipairs(guiNames) do
+        pcall(function()
+            local gui = CoreGui:FindFirstChild(name)
+            if gui then gui:Destroy() end
+        end)
+        pcall(function()
+            local gui = workspace:FindFirstChild(name)
+            if gui then gui:Destroy() end
+        end)
+    end
+    
+    -- 2. ลบ Objects ที่สร้างใน Workspace
+    pcall(function()
+        local hipPlatform = workspace:FindFirstChild("HipHeightPlatform")
+        if hipPlatform then hipPlatform:Destroy() end
+    end)
+    pcall(function()
+        local invisSeat = workspace:FindFirstChild("invischair_pwy")
+        if invisSeat then invisSeat:Destroy() end
+    end)
+    
+    -- 3. Disconnect ทุก Connection ที่เก็บไว้
+    if _G._PwyvConnections then
+        for _, conn in ipairs(_G._PwyvConnections) do
+            pcall(function() conn:Disconnect() end)
+        end
+        _G._PwyvConnections = {}
+    end
+    
+    -- 4. ลบ Caches ทั้งหมด
+    if _G._PwyvCaches then
+        for char, cache in pairs(_G._PwyvCaches.ESP or {}) do
+            pcall(function()
+                if cache.Gui then cache.Gui:Destroy() end
+                if cache.Highlight then cache.Highlight:Destroy() end
+            end)
+        end
+        _G._PwyvCaches = nil
+    end
+    
+    -- 5. คืนค่า Character ทั้งหมด
+    pcall(function()
+        local lpc = Players.LocalPlayer.Character
+        if lpc then
+            -- คืนค่า CanCollide
+            for _, p in ipairs(lpc:GetDescendants()) do
+                pcall(function() if p:IsA("BasePart") then p.CanCollide = true end end)
+            end
+            -- ลบ Fly forces
+            local hrp = lpc:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                for _, child in ipairs(hrp:GetChildren()) do
+                    if child:IsA("BodyGyro") or child:IsA("BodyVelocity") then
+                        child:Destroy()
+                    end
+                end
+            end
+            -- คืนค่า Animate
+            local animate = lpc:FindFirstChild("Animate")
+            if animate then animate.Disabled = false end
+            -- คืนค่า CameraSubject
+            local hum = lpc:FindFirstChildOfClass("Humanoid")
+            if hum then
+                workspace.CurrentCamera.CameraSubject = hum
+                hum.PlatformStand = false
+            end
+        end
+    end)
+    
+    -- 6. คืนค่าผู้เล่นอื่น (Hitbox, ESP)
+    pcall(function()
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= Players.LocalPlayer and p.Character then
+                local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    hrp.Size = Vector3.new(2, 2, 1)
+                    hrp.Transparency = 1
+                    hrp.Material = Enum.Material.SmoothPlastic
+                    hrp.CanCollide = true
+                end
+            end
+        end
+    end)
+    
+    -- 7. คืนค่า Camera
+    pcall(function()
+        workspace.CurrentCamera.FieldOfView = 70
+    end)
+    pcall(function()
+        Players.LocalPlayer.CameraMaxZoomDistance = 400
+        Players.LocalPlayer.CameraMinZoomDistance = 5
+    end)
+    
+    -- 8. คืนค่า Lighting
+    pcall(function()
+        Lighting.GlobalShadows = true
+        Lighting.FogEnd = 1e6
+        Lighting.Brightness = 1
+    end)
+    
+    -- 9. คืนค่า Rendering
+    pcall(function()
+        settings().Rendering.QualityLevel = Enum.QualityLevel.Automatic
+    end)
+    
+    -- 10. ลบ FOV Circle
+    if _G._PwyvCircle then
+        pcall(function()
+            _G._PwyvCircle.Visible = false
+            _G._PwyvCircle:Remove()
+        end)
+        _G._PwyvCircle = nil
+    end
+    
+    -- 11. ลบ State ทั้งหมด
+    _G._PwyvState = nil
+    _G._PwyvRuntime = nil
+    
+    -- 12. รอให้ RenderStepped จบก่อน (Roblox จัดการ GC เอง)
+    task.wait()
+end
+
+-- รัน Cleanup ก่อนเริ่มทำงาน (กรณีรันซ้ำ)
+ComprehensiveCleanup()
+
+-- ลบ GUI เดิมอีกครั้งเพื่อความชัวร์
+for _, n in ipairs({"PhwyverysadModMenu","PhwyverysadDropdowns","PhwyverysadCPicker","NexusESP_Folder"}) do
+    local g = CoreGui:FindFirstChild(n); if g then g:Destroy() end
+end
+
 -- [ CONFIG ]
-local Config = {
-    Aimlock = false, AimMode = "HOLD", FOV = 20, AimSmooth = 1,
-    WallCheck = true,
-    -- TargetMode: 1=PLAYERS ONLY  2=NPCs ONLY  3=PLAYERS & NPCs
-    TargetMode = 1,
-    EnemyOnly = false, BindType = "Keyboard", BindKey = nil,
-
-    ESPMaster = false, ESPShowName = false, ESPShowHealth = false,
-    ESPShowDistance = false, ESPHighlight = false,
-    ESPTeamCheck = false, ESPTeamColor = false, ESPXray = false,
-    ESPTextSize = 10, ESPFillTrans = 0.5, ESPOutlineTrans = 0.1,
-    ESPColor_C3 = Color3.new(1,1,1),
-
-    P_Master = false, P_ShowName = false, P_ShowHealth = false,
-    P_ShowDist = false, P_Highlight = false,
-    P_TeamCheck = false, P_TeamColor = false, P_Xray = false,
-    P_TextSize = 10, P_FillTrans = 0.5, P_OutlineTrans = 0.1,
-    P_HitboxToggle = false, P_HitboxSize = 32, HitboxTargetMode = "PLAYERS ONLY",
-    P_Color_C3 = Color3.new(1,1,1),
-    P_ESPInFOVOnly = false,
-
-    WalkSpeed = 100, WSToggle = false,
-    JumpPower = 100, JPToggle = false,
-    InfJump = false, FlyToggle = false, FlySpeed = 100,
-    Noclip = false, InfZoom = false, InvisToggle = false,
-    FOVToggle = false, FOVView = 70,
-    FOVColor_C3 = Color3.fromRGB(30,161,255),
-
-    GodMode = false, AntiAFK = true,
-    FPSBooster = false, FPS_NoShadows = true,
-    FPS_NoParticles = true, FPS_NoClothes = true, FPS_LowQuality = true,
-
-    ShowFPSPing = "FPS & Ping", ShowStatsToggle = false, HUDPosition = "TopRight",
-    TPTarget = "-", TPMode = "Warp", TPFlightSens = 80, TPGOSwitch = false,
-    SpecTarget = "-", SpecToggle = false,
-    ClickTPToggle = false, ClickTPBindType = "Keyboard", ClickTPBindKey = nil,
-    MenuToggleBindType = "Keyboard", MenuToggleBindKey = Enum.KeyCode.G, MenuVisible = true,
-    Theme = "Midnight",
+-- [ UNIFIED APPLICATION CORE ]
+-- Logic: Encapsulate all script data into a single root object to prevent global leaks
+-- Algorithm: Use a Proxy Metatable for Config to handle data validation and future signal dispatching
+local Phwy = {
+    Settings = {},
+    State    = {},
+    Runtime  = {
+        Memory = {
+            Connections = {}, ThemeRefs = {}, 
+            AllRows = {}, AllRowFrames = {}, Tabs = {}
+        },
+        Caches = {
+            ESP = {}, NPCs = {}, XrayM = {}, XrayP = {}, 
+            HitboxOrig = {}, InteractOrig = {}, ValidTargets = {}
+        },
+        Handles = {
+            LockedTarget = nil, FlyBG = nil, FlyBV = nil,
+            Loops = {} -- Handles for WS, JP, NC, etc.
+        },
+        Stats = {
+            frameCount = 0, lastFPS = 0, pingValue = 0, lastWarpTick = 0
+        }
+    }
 }
 
--- [ STATE ]
-local State = {
-    Running = true, ToggleAiming = false, Binding = nil,
-    isMinimized = false, isMaximized = false, isHidden = false,
-    preHideSize = nil,
-    originalSize = UDim2.new(0,880,0,570),
-    originalPos  = UDim2.new(0.5,-440,0.5,-285),
+-- [ ENCAPSULATION: Settings Proxy ]
+setmetatable(Phwy.Settings, {
+    __newindex = function(t, k, v)
+        -- Logic: We can add change listeners or validation here in the future
+        rawset(t, k, v)
+    end
+})
+
+-- [ DATA INITIALIZATION ]
+local initialConfig = {
+    Aimlock = false, AimMode = "HOLD", FOV = 20, AimSmooth = 1, WallCheck = true, TargetMode = 1, EnemyOnly = false, AimTargetPart = "Head", BindType = "Keyboard", BindKey = nil,
+    ESPMaster = false, ESPShowName = false, ESPShowHealth = false, ESPShowDistance = false, ESPHighlight = false, ESPTeamCheck = false, ESPTeamColor = false, ESPXray = false, ESPTextSize = 10, ESPFillTrans = 0.5, ESPOutlineTrans = 0.1, ESPColor_C3 = Color3.new(1,1,1),
+    P_Master = false, P_ShowName = true, P_ShowHealth = true, P_ShowDist = true, P_Highlight = true, P_TeamCheck = false, P_TeamColor = false, P_Xray = false, P_TextSize = 10, P_FillTrans = 0.5, P_OutlineTrans = 0.1, P_HitboxToggle = false, P_HitboxSize = 32, HitboxTargetMode = "PLAYERS ONLY", P_Color_C3 = Color3.new(1,1,1), P_ESPInFOVOnly = false,
+    WalkSpeed = 100, WSToggle = false, JumpPower = 100, JPToggle = false, InfJump = false, FlyToggle = false, FlySpeed = 100, Noclip = false, InfZoom = true, InvisToggle = false, FOVToggle = false, FOVView = 70, FOVColor_C3 = Color3.fromRGB(30,161,255),
+AntiAFK = true, FPSBooster = false, FPS_NoShadows = true, FPS_NoParticles = true, FPS_NoClothes = true, FPS_LowQuality = true, HipHeightToggle = false, HipHeightValue = 50, InstantPress = true, AuraRange = false,
+    ShowFPSPing = "FPS & Ping", ShowStatsToggle = true, HUDPosition = "TopRight", TPTarget = "-", TPMode = "Warp", TPFlightSens = 80, TPGOSwitch = false, SpecTarget = "-", SpecToggle = false, ClickTPToggle = false, ClickTPBindType = "Keyboard", ClickTPBindKey = nil, MenuToggleBindType = "Keyboard", MenuToggleBindKey = Enum.KeyCode.G, MenuVisible = true, Theme = "Midnight", 
+    GithubURL = "https://github.com/phwyverysad",
+    -- Keybinds System: เก็บการตั้งค่าปุ่มสำหรับแต่ละฟีเจอร์
+    Keybinds = {
+        -- Aimlock Tab
+        Aimlock = {Type="Keyboard", Key=Enum.KeyCode.Q, Enabled=false},
+        -- ESP Tab  
+        P_Master = {Type="Keyboard", Key=Enum.KeyCode.Z, Enabled=false},
+        P_HitboxToggle = {Type="Keyboard", Key=Enum.KeyCode.X, Enabled=false},
+        -- Player Tab
+        WSToggle = {Type="Keyboard", Key=Enum.KeyCode.LeftShift, Enabled=false},
+        JPToggle = {Type="Keyboard", Key=Enum.KeyCode.Space, Enabled=false},
+        FlyToggle = {Type="Keyboard", Key=Enum.KeyCode.F, Enabled=false},
+        Noclip = {Type="Keyboard", Key=Enum.KeyCode.N, Enabled=false},
+        InfJump = {Type="Keyboard", Key=Enum.KeyCode.V, Enabled=false},
+        InvisToggle = {Type="Keyboard", Key=Enum.KeyCode.I, Enabled=false},
+        InfZoom = {Type="Keyboard", Key=Enum.KeyCode.M, Enabled=false},
+        FOVToggle = {Type="Keyboard", Key=Enum.KeyCode.P, Enabled=false},
+        Fullbright_Toggle = {Type="Keyboard", Key=Enum.KeyCode.B, Enabled=false},
+        RemoveFog_Toggle = {Type="Keyboard", Key=Enum.KeyCode.End, Enabled=false},
+        AntiAFK = {Type="Keyboard", Key=Enum.KeyCode.Home, Enabled=false},
+        FPSBooster = {Type="Keyboard", Key=Enum.KeyCode.Insert, Enabled=false},
+        HipHeightToggle = {Type="Keyboard", Key=Enum.KeyCode.PageUp, Enabled=false},
+        -- Teleport Tab
+        TPGOSwitch = {Type="Keyboard", Key=Enum.KeyCode.T, Enabled=false},
+        ClickTPToggle = {Type="Keyboard", Key=Enum.KeyCode.C, Enabled=false},
+    }
 }
+for k, v in pairs(initialConfig) do Phwy.Settings[k] = v end
 
-local Connections = {}; local ESP_Cache = {}; local NPCCache = {}
-local XrayCache_M = {}; local XrayCache_P = {}; local HitboxOriginalSizes = {}
-local OriginalInteractData = {}
-local LockedTarget = nil; local FlyBG, FlyBV = nil, nil
-local WS_Loop,JP_Loop,NC_Conn,IJ_Conn = nil,nil,nil,nil
-local GM_Conn,AFK_Conn,FPS_DescConn,SafeTP_Conn = nil,nil,nil,nil
-local lastFPS,frameCount,pingValue = 0,0,0
-local lastWarpTick = 0
-local AllRowFrames = {}; local ThemeRefs = {}
-local Tabs = {}; local currentTab = nil; local AllRows = {}
-local ESP_Folder
--- ValidTargets: populated by target scanner (same as AIMLOCK.lua pattern)
-local ValidTargets = {}  -- char -> displayName
+local initialState = {
+    Running = true, ToggleAiming = false, Binding = nil, isMinimized = false, isMaximized = false, isHidden = false, preHideSize = nil,
+    originalSize = UDim2.new(0,880,0,570), originalPos = UDim2.new(0.5,-440,0.5,-285),
+}
+for k, v in pairs(initialState) do Phwy.State[k] = v end
 
-local function AddConn(c) table.insert(Connections,c); return c end
+-- [ COMPATIBILITY & ALIASES ]
+-- Algorithm: Provide local pointers to internal tables to keep external code functional (100% logic preservation)
+local Config        = Phwy.Settings
+local State         = Phwy.State
+local Runtime       = Phwy.Runtime
+local Connections   = Runtime.Memory.Connections
+local ESP_Cache     = Runtime.Caches.ESP
+local NPCCache      = Runtime.Caches.NPCs
+local XrayCache_M   = Runtime.Caches.XrayM
+local XrayCache_P   = Runtime.Caches.XrayP
+local HitboxOriginalSizes = Runtime.Caches.HitboxOrig
+local OriginalInteractData = Runtime.Caches.InteractOrig
+local ValidTargets  = Runtime.Caches.ValidTargets
+local ThemeRefs     = Runtime.Memory.ThemeRefs
+local AllRows       = Runtime.Memory.AllRows
+local AllRowFrames  = Runtime.Memory.AllRowFrames
+local Tabs          = Runtime.Memory.Tabs
+local Stats         = Runtime.Stats -- local reference for HUD variables
+
+local function AddConn(c) 
+    table.insert(Connections,c) 
+    -- เก็บใน _G เพื่อ cleanup ตอนรันซ้ำ
+    if not _G._PwyvConnections then _G._PwyvConnections = {} end
+    table.insert(_G._PwyvConnections, c)
+    return c 
+end
 local function RegTR(obj,key,prop) table.insert(ThemeRefs,{obj=obj,key=key,prop=prop}); return obj end
+local function TwSpring(obj,t,props) TweenService:Create(obj,TweenInfo.new(t,Enum.EasingStyle.Elastic,Enum.EasingDirection.Out),props):Play() end
+local function TwBack(obj,t,props)   TweenService:Create(obj,TweenInfo.new(t,Enum.EasingStyle.Back,Enum.EasingDirection.Out),props):Play()   end
 
 -- [ THEMES ]
 local Themes = {
@@ -250,7 +433,7 @@ BgContainer.BackgroundTransparency = 0.05
 BgContainer.BorderSizePixel = 0
 BgContainer.ClipsDescendants = true
 RegTR(BgContainer,"WinBg","BackgroundColor3")
-local MainCorner=Corner(BgContainer,12)
+local MainCorner=Instance.new("UICorner",BgContainer); MainCorner.CornerRadius=UDim.new(0,12)
 local MainStroke=Stroke(BgContainer,Themes.Dark.Stroke,1.2); RegTR(MainStroke,"Stroke","Color")
 
 -- Spring entrance
@@ -271,11 +454,13 @@ Corner(TitleLine,2); task.delay(0.76,function() Tw(TitleLine,0.6,{Size=UDim2.new
 
 -- LEFT: Mac dots + Logo
 local TitleLeft=Instance.new("Frame",TitleBar)
-TitleLeft.Size=UDim2.new(0.48,0,1,0); TitleLeft.Position=UDim2.new(0,0,0,0)
-TitleLeft.BackgroundTransparency=1; TitleLeft.ZIndex=5
+TitleLeft.Size=UDim2.new(0.5,0,1,0); TitleLeft.BackgroundTransparency=1; TitleLeft.ZIndex=5
+local TLlyt=Instance.new("UIListLayout",TitleLeft)
+TLlyt.FillDirection=Enum.FillDirection.Horizontal; TLlyt.VerticalAlignment=Enum.VerticalAlignment.Center; TLlyt.Padding=UDim.new(0,10)
+Instance.new("UIPadding",TitleLeft).PaddingLeft=UDim.new(0,14)
 
 local MacDots=Instance.new("Frame",TitleLeft)
-MacDots.Size=UDim2.new(0,62,1,0); MacDots.Position=UDim2.new(0,14,0,0); MacDots.BackgroundTransparency=1
+MacDots.Size=UDim2.new(0,62,0,13); MacDots.BackgroundTransparency=1; MacDots.LayoutOrder=1
 local DLyt=Instance.new("UIListLayout",MacDots)
 DLyt.FillDirection=Enum.FillDirection.Horizontal; DLyt.VerticalAlignment=Enum.VerticalAlignment.Center; DLyt.Padding=UDim.new(0,8)
 local function MakeDot(col, icon)
@@ -294,11 +479,51 @@ local DotYellow=MakeDot(Color3.fromRGB(255,189,46), "−")
 local DotGreen=MakeDot(Color3.fromRGB(39,201,63), "＋")
 
 local TitleText=Instance.new("TextLabel",TitleLeft)
-TitleText.Size=UDim2.new(1,-82,1,0); TitleText.Position=UDim2.new(0,80,0,0)
-TitleText.BackgroundTransparency=1; TitleText.Text="phwyverysad"
-TitleText.TextColor3=Color3.fromRGB(185,185,210); TitleText.Font=Enum.Font.GothamBold
-TitleText.TextSize=15; TitleText.ZIndex=5; TitleText.TextXAlignment=Enum.TextXAlignment.Left
-TitleText.TextTruncate=Enum.TextTruncate.AtEnd
+TitleText.Size=UDim2.new(0,100,1,0); TitleText.BackgroundTransparency=1; TitleText.Text="phwyverysad"; TitleText.LayoutOrder=2
+TitleText.TextColor3=Color3.fromRGB(185,185,210); TitleText.Font=Enum.Font.GothamBold; TitleText.TextSize=15; TitleText.ZIndex=5
+TitleText.TextXAlignment=Enum.TextXAlignment.Left; TitleText.AutomaticSize=Enum.AutomaticSize.X
+
+-- [ GITHUB BUTTON (TAG DESIGN) ]
+-- Logic: Redesign as a branded badge with versioning
+local GithubBtn = Instance.new("TextButton", TitleLeft)
+GithubBtn.Name = "GithubButton"; GithubBtn.LayoutOrder = 3
+GithubBtn.Size = UDim2.new(0, 92, 0, 26); GithubBtn.BackgroundColor3 = Colors.PrimaryBlue
+GithubBtn.Text = ""; GithubBtn.AutoButtonColor = false; GithubBtn.ZIndex = 10
+Corner(GithubBtn, 8); Stroke(GithubBtn, Color3.new(0,0,0), 0.1)
+
+local GBlyt = Instance.new("UIListLayout", GithubBtn)
+GBlyt.FillDirection = Enum.FillDirection.Horizontal; GBlyt.Padding = UDim.new(0, 6)
+GBlyt.HorizontalAlignment = Enum.HorizontalAlignment.Center; GBlyt.VerticalAlignment = Enum.VerticalAlignment.Center
+
+local GBIcon = Instance.new("ImageLabel", GithubBtn)
+GBIcon.Size = UDim2.new(0, 18, 0, 18); GBIcon.BackgroundTransparency = 1
+GBIcon.Image = "rbxthumb://type=Asset&id=104260392338381&w=150&h=150"
+GBIcon.ImageColor3 = Color3.new(0,0,0); GBIcon.ScaleType = Enum.ScaleType.Fit; GBIcon.ZIndex = 11
+
+local GBText = Instance.new("TextLabel", GithubBtn)
+GBText.Size = UDim2.new(0, 45, 1, 0); GBText.BackgroundTransparency = 1
+GBText.Text = "v0.0.1"; GBText.TextColor3 = Color3.new(0,0,0)
+GBText.Font = Enum.Font.GothamBold; GBText.TextSize = 13; GBText.ZIndex = 11
+
+-- Interactivity Logic
+GithubBtn.MouseEnter:Connect(function() 
+    Tw(GithubBtn, 0.2, {BackgroundColor3 = Color3.fromRGB(80, 200, 255), Rotation = 2}) 
+end)
+GithubBtn.MouseLeave:Connect(function() 
+    Tw(GithubBtn, 0.2, {BackgroundColor3 = Colors.PrimaryBlue, Rotation = 0}) 
+end)
+GithubBtn.MouseButton1Down:Connect(function() 
+    Tw(GithubBtn, 0.1, {Size = UDim2.new(0, 88, 0, 24)}) 
+end)
+GithubBtn.MouseButton1Up:Connect(function() 
+    TwSpring(GithubBtn, 0.3, {Size = UDim2.new(0, 92, 0, 26)}) 
+    if setclipboard then
+        setclipboard(Config.GithubURL)
+        ShowToast("🔗 คัดลอกลิงก์ GitHub แล้ว!", Colors.Green)
+    else
+        ShowToast("❌ Executor ไม่รองรับ clipboard", Colors.Red)
+    end
+end)
 
 -- RIGHT: Controls group (UIListLayout, right-aligned)
 local TitleRight=Instance.new("Frame",TitleBar)
@@ -352,9 +577,9 @@ local MBBStroke=MenuBindBtn:FindFirstChildOfClass("UIStroke")
 
 local function UpdateMenuBindLabel()
     if Config.MenuToggleBindType=="Mouse" and Config.MenuToggleBindKey then
-        MenuBindBtn.Text="⌨  MB"..tostring(Config.MenuToggleBindKey)
+        MenuBindBtn.Text="  MB"..tostring(Config.MenuToggleBindKey)
     else
-        MenuBindBtn.Text="⌨  "..(Config.MenuToggleBindKey and Config.MenuToggleBindKey.Name or "ตั้งปุ่ม")
+        MenuBindBtn.Text="  "..(Config.MenuToggleBindKey and Config.MenuToggleBindKey.Name or "ตั้งปุ่ม")
     end
 end
 UpdateMenuBindLabel()
@@ -478,161 +703,103 @@ local function ShowDD() DDDim.Visible=true; DDContainer.Visible=true; DDContaine
 local function HideDD() DDDim.Visible=false; Tw(DDContainer,0.14,{Size=UDim2.new(0,200,0,0)}); task.delay(0.15,function() DDContainer.Visible=false end) end
 DDDim.MouseButton1Click:Connect(HideDD)
 
--- [ COLOR PICKER (Floating singleton) ]
-local CPGui=Instance.new("ScreenGui",CoreGui); CPGui.Name="PhwyverysadCPicker"; CPGui.DisplayOrder=210; CPGui.ResetOnSpawn=false
+-- [ ULTIMATE HUE RING + SV SQUARE COLOR PICKER ]
+local GuiService = game:GetService("GuiService")
+local CPGui = Instance.new("ScreenGui", CoreGui); CPGui.Name = "PhwyverysadUltimateCP"; CPGui.DisplayOrder = 2000; CPGui.ResetOnSpawn = false
 
-local CPPanel=Instance.new("Frame",CPGui); CPPanel.Size=UDim2.new(0,252,0,340); CPPanel.BackgroundColor3=Color3.fromRGB(10,10,15)
-CPPanel.BackgroundTransparency=0.45; CPPanel.BorderSizePixel=0; CPPanel.Visible=false; CPPanel.ZIndex=110; Corner(CPPanel,20)
-local CPPanelStroke=Instance.new("UIStroke",CPPanel); CPPanelStroke.Color=Colors.PrimaryBlue; CPPanelStroke.Thickness=1.5
-CPPanel.ClipsDescendants=false
+local DismissBtn = Instance.new("TextButton", CPGui); DismissBtn.Size = UDim2.new(1, 0, 1, 0); DismissBtn.BackgroundTransparency = 1; DismissBtn.Text = ""; DismissBtn.ZIndex = 0; DismissBtn.Visible = false
 
--- CP shadow
-local CPS=Instance.new("ImageLabel",CPPanel); CPS.Size=UDim2.new(1,60,1,60); CPS.Position=UDim2.new(0,-30,0,-30)
-CPS.BackgroundTransparency=1; CPS.Image="rbxassetid://6015897843"; CPS.ImageColor3=Color3.new(0,0,0); CPS.ImageTransparency=0.55
-CPS.SliceCenter=Rect.new(49,49,450,450); CPS.ScaleType=Enum.ScaleType.Slice; CPS.ZIndex=-1
+local CPMain = Instance.new("Frame", CPGui); CPMain.Size = UDim2.new(0, 220, 0, 220); CPMain.BackgroundColor3 = Color3.new(1, 1, 1); CPMain.Visible = false; Corner(CPMain, 999)
+local CPStroke = Stroke(CPMain, Color3.fromRGB(200, 200, 210), 1)
 
--- CP Title bar
-local CPTitle=Instance.new("Frame",CPPanel); CPTitle.Size=UDim2.new(1,0,0,36); CPTitle.BackgroundTransparency=1; CPTitle.BorderSizePixel=0
-local CPTitleFix=Instance.new("Frame",CPTitle); CPTitleFix.Size=UDim2.new(1,0,0,1); CPTitleFix.Position=UDim2.new(0,0,1,-1); CPTitleFix.BackgroundColor3=Color3.new(1,1,1); CPTitleFix.BackgroundTransparency=0.85; CPTitleFix.BorderSizePixel=0
-local CPTitleLbl=Instance.new("TextLabel",CPTitle); CPTitleLbl.Size=UDim2.new(1,-42,1,0); CPTitleLbl.Position=UDim2.new(0,14,0,0)
-CPTitleLbl.BackgroundTransparency=1; CPTitleLbl.Text="🎨  Color Picker"; CPTitleLbl.TextColor3=Color3.fromRGB(220,220,240); CPTitleLbl.Font=Enum.Font.GothamBold; CPTitleLbl.TextSize=14; CPTitleLbl.TextXAlignment=Enum.TextXAlignment.Left
-local CPCloseBtn=Instance.new("TextButton",CPTitle); CPCloseBtn.Size=UDim2.new(0,24,0,24); CPCloseBtn.Position=UDim2.new(1,-32,0.5,-12)
-CPCloseBtn.BackgroundColor3=Color3.fromRGB(220,60,60); CPCloseBtn.Text="✕"; CPCloseBtn.TextColor3=Color3.new(1,1,1); CPCloseBtn.Font=Enum.Font.GothamBold; CPCloseBtn.TextSize=13; CPCloseBtn.AutoButtonColor=false
-CPCloseBtn.Visible=false -- Hidden to force Apply & Close
-Corner(CPCloseBtn,10)
+local HueRing = Instance.new("ImageLabel", CPMain); HueRing.Size = UDim2.new(1, -10, 1, -10); HueRing.Position = UDim2.new(0.5, 0, 0.5, 0); HueRing.AnchorPoint = Vector2.new(0.5, 0.5)
+HueRing.Image = "rbxassetid://6020299385"; HueRing.BackgroundTransparency = 1; HueRing.Active = true
 
--- CP Preview box — placed BELOW all sliders at y=198
--- Layout: Title(0-36) H(44-88) S(96-140) V(148-192) Preview(198-244) Presets(248-274) Apply(282-310)
-local CPPreview=Instance.new("Frame",CPPanel); CPPreview.Size=UDim2.new(1,-28,0,46); CPPreview.Position=UDim2.new(0,14,0,198)
-CPPreview.BackgroundColor3=Color3.new(1,1,1); Corner(CPPreview,16); Stroke(CPPreview,Color3.new(1,1,1),0.6)
-local CPPreviewLbl=Instance.new("TextLabel",CPPreview); CPPreviewLbl.Size=UDim2.new(1,0,1,0); CPPreviewLbl.BackgroundTransparency=1
-CPPreviewLbl.TextColor3=Color3.new(1,1,1); CPPreviewLbl.Font=Enum.Font.GothamBold; CPPreviewLbl.TextSize=14; CPPreviewLbl.TextStrokeTransparency=0.25
+local HueCursor = Instance.new("Frame", HueRing); HueCursor.Size = UDim2.new(0, 14, 0, 14); HueCursor.AnchorPoint = Vector2.new(0.5, 0.5)
+HueCursor.BackgroundColor3 = Color3.new(1, 1, 1); Corner(HueCursor, 99); Stroke(HueCursor, Color3.new(0,0,0), 2)
 
-local CP={H=0,S=1,V=1,callback=nil}
+local SVMap = Instance.new("ImageLabel", CPMain); SVMap.Size = UDim2.new(0, 100, 0, 100); SVMap.Position = UDim2.new(0.5, 0, 0.5, 0); SVMap.AnchorPoint = Vector2.new(0.5, 0.5)
+SVMap.Image = "rbxassetid://4155801252"; Corner(SVMap, 4); Stroke(SVMap, Color3.fromRGB(200, 200, 210), 1); SVMap.Active = true
 
-local function CPGetColor() return Color3.fromHSV(CP.H,CP.S,CP.V) end
+local SVCursor = Instance.new("Frame", SVMap); SVCursor.Size = UDim2.new(0, 10, 0, 10); SVCursor.AnchorPoint = Vector2.new(0.5, 0.5)
+SVCursor.BackgroundColor3 = Color3.new(1, 1, 1); Corner(SVCursor, 99); Stroke(SVCursor, Color3.new(0,0,0), 1.5)
 
-local function CPUpdateUI()
-    local col=CPGetColor(); CPPreview.BackgroundColor3=col
-    local r,g,b=math.floor(col.R*255),math.floor(col.G*255),math.floor(col.B*255)
-    CPPreviewLbl.Text=string.format("RGB(%d, %d, %d)", r,g,b)
-    CPPreviewLbl.TextColor3=(col.R*0.299+col.G*0.587+col.B*0.114>0.5) and Color3.new(0,0,0) or Color3.new(1,1,1)
-    if CP.callback then CP.callback(col) end
+local CP_D = {H = 0, S = 1, V = 1, callback = nil, dragMode = nil}
+
+local function UpdateCP()
+    local color = Color3.fromHSV(CP_D.H, CP_D.S, CP_D.V)
+    SVMap.BackgroundColor3 = Color3.fromHSV(CP_D.H, 1, 1)
+    if CP_D.callback then CP_D.callback(color) end
 end
 
--- Helper: create CP slider
-local function MakeCPSlider(parent,yPos,label,startVal,onPct)
-    local row=Instance.new("Frame",parent); row.Size=UDim2.new(1,-24,0,42); row.Position=UDim2.new(0,12,0,yPos)
-    row.BackgroundColor3=Color3.new(1,1,1); row.BackgroundTransparency=0.92; row.BorderSizePixel=0; row.ZIndex=110; Corner(row,12)
-    local lbl=Instance.new("TextLabel",row); lbl.Size=UDim2.new(0,18,0,16); lbl.Position=UDim2.new(0,8,0,4)
-    lbl.BackgroundTransparency=1; lbl.Text=label; lbl.TextColor3=Color3.new(1,1,1); lbl.Font=Enum.Font.GothamBold; lbl.TextSize=13; lbl.ZIndex=111
-    local val=Instance.new("TextLabel",row); val.Size=UDim2.new(0,40,0,16); val.Position=UDim2.new(1,-44,0,4)
-    val.BackgroundTransparency=1; val.TextColor3=Colors.PrimaryBlue; val.Font=Enum.Font.GothamBold; val.TextSize=13; val.TextXAlignment=Enum.TextXAlignment.Right; val.ZIndex=111
-    local track=Instance.new("Frame",row); track.Size=UDim2.new(1,-16,0,8); track.Position=UDim2.new(0,8,0,26)
-    track.BackgroundColor3=Color3.new(1,1,1); track.BackgroundTransparency=0; track.BorderSizePixel=0; track.ZIndex=111; track.ClipsDescendants=false
-    Corner(track,4)
-    local fill=Instance.new("Frame",track); fill.Size=UDim2.new(startVal,0,1,0); fill.BackgroundColor3=Color3.new(1,1,1); fill.BackgroundTransparency=1; fill.BorderSizePixel=0; Corner(fill,5)
-    fill.ZIndex=111
-    local knob=Instance.new("Frame",track); knob.Size=UDim2.new(0,15,0,15); knob.Position=UDim2.new(startVal,-7.5,0.5,-7.5)
-    knob.BackgroundColor3=Color3.new(1,1,1); knob.BorderSizePixel=0; knob.ZIndex=112; Corner(knob,99)
-    Stroke(knob,Colors.PrimaryBlue,1.5)
-    local pct=startVal
-    local function SetPct(px)
-        pct=math.clamp((px-track.AbsolutePosition.X)/track.AbsoluteSize.X,0,1)
-        fill.Size=UDim2.new(pct,0,1,0); knob.Position=UDim2.new(pct,-7.5,0.5,-7.5)
-        onPct(pct,val)
+local function TrackInput()
+    if not CP_D.dragMode then return end
+    local inset = GuiService:GetGuiInset()
+    local mouseLoc = UIS:GetMouseLocation()
+    local mousePos = Vector2.new(mouseLoc.X, mouseLoc.Y - inset.Y)
+    
+    if CP_D.dragMode == "H" then
+        local center = HueRing.AbsolutePosition + (HueRing.AbsoluteSize / 2)
+        local delta = Vector2.new(mousePos.X - center.X, mousePos.Y - center.Y)
+        local angle = math.atan2(delta.Y, delta.X)
+        local deg = math.deg(angle)
+        local h = (180 - deg) / 360
+        CP_D.H = h % 1
+        
+        local dist = math.clamp(delta.Magnitude, 66, 104)
+        HueCursor.Position = UDim2.new(0.5, math.cos(angle) * dist, 0.5, math.sin(angle) * dist)
+    elseif CP_D.dragMode == "SV" then
+        local pos = SVMap.AbsolutePosition
+        local size = SVMap.AbsoluteSize
+        local x = math.clamp((mousePos.X - pos.X) / size.X, 0, 1)
+        local y = math.clamp((mousePos.Y - pos.Y) / size.Y, 0, 1)
+        CP_D.S = x; CP_D.V = 1 - y
+        SVCursor.Position = UDim2.new(x, 0, y, 0)
     end
-    local sliding=false
-    track.InputBegan:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 then sliding=true; SetPct(i.Position.X); TwSpring(knob,0.3,{Size=UDim2.new(0,17,0,17)}) end end)
-    UIS.InputChanged:Connect(function(i) if sliding and i.UserInputType==Enum.UserInputType.MouseMovement then SetPct(i.Position.X) end end)
-    UIS.InputEnded:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 and sliding then sliding=false; Tw(knob,0.15,{Size=UDim2.new(0,15,0,15)}) end end)
-    -- Returns an update function so external code can sync the knob
-    local function UpdatePos(newPct)
-        pct=newPct
-        fill.Size=UDim2.new(pct,0,1,0)
-        knob.Position=UDim2.new(pct,-7.5,0.5,-7.5)
-        onPct(pct,val)
+    UpdateCP()
+end
+
+HueRing.InputBegan:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1 then
+        local inset = GuiService:GetGuiInset()
+        local mouseLoc = UIS:GetMouseLocation()
+        local mousePos = Vector2.new(mouseLoc.X, mouseLoc.Y - inset.Y)
+        local center = HueRing.AbsolutePosition + (HueRing.AbsoluteSize / 2)
+        local dist = (mousePos - center).Magnitude
+        if dist > 65 then 
+            CP_D.dragMode = "H"; TrackInput()
+        end
     end
-    return fill,val,UpdatePos
-end
-
--- Sliders: H(y=44), S(y=96), V(y=148) — each 44px tall inside 340px panel
-local CPHFill,CPHVal,UpdateHSlider=MakeCPSlider(CPPanel,44,"H",CP.H,function(p,vl)
-    CP.H=p; vl.Text=math.floor(p*360).."°"; CPUpdateUI()
 end)
-CPHVal.Text="0°"
--- Rainbow gradient on hue track
-local HueG=Instance.new("UIGradient",CPHFill.Parent)
-HueG.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.fromHSV(0,1,1)),ColorSequenceKeypoint.new(1/6,Color3.fromHSV(1/6,1,1)),ColorSequenceKeypoint.new(2/6,Color3.fromHSV(2/6,1,1)),ColorSequenceKeypoint.new(3/6,Color3.fromHSV(3/6,1,1)),ColorSequenceKeypoint.new(4/6,Color3.fromHSV(4/6,1,1)),ColorSequenceKeypoint.new(5/6,Color3.fromHSV(5/6,1,1)),ColorSequenceKeypoint.new(1,Color3.fromHSV(1,1,1))})
-local CPHFillReal=Instance.new("Frame",CPHFill.Parent); CPHFillReal.Size=UDim2.new(1,0,1,0); CPHFillReal.BackgroundTransparency=1; CPHFillReal.ZIndex=109
 
-local CPSFill,CPSVal,UpdateSSlider=MakeCPSlider(CPPanel,96,"S",CP.S,function(p,vl)
-    CP.S=p; vl.Text=math.floor(p*100).."%"; CPUpdateUI()
+SVMap.InputBegan:Connect(function(i) 
+    if i.UserInputType == Enum.UserInputType.MouseButton1 then 
+        CP_D.dragMode = "SV"; TrackInput() 
+    end 
 end)
-CPSVal.Text="100%"
-local SatGrad=Instance.new("UIGradient",CPSFill.Parent)
-SatGrad.Color=ColorSequence.new{ColorSequenceKeypoint.new(0,Color3.new(1,1,1)),ColorSequenceKeypoint.new(1,Color3.fromHSV(CP.H,1,1))}
 
-local CPVFill,CPVVal,UpdateVSlider=MakeCPSlider(CPPanel,148,"V",CP.V,function(p,vl)
-    CP.V=p; vl.Text=math.floor(p*100).."%"; CPUpdateUI()
+UIS.InputEnded:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 then CP_D.dragMode = nil end end)
+AddConn(RunService.RenderStepped:Connect(TrackInput))
+
+DismissBtn.MouseButton1Click:Connect(function() 
+    if CP_D.dragMode then return end 
+    CPMain.Visible = false; DismissBtn.Visible = false
 end)
-CPVVal.Text="100%"
-local ValGrad=Instance.new("UIGradient",CPVFill.Parent)
-ValGrad.Color=ColorSequence.new{ColorSequenceKeypoint.new(0,Color3.new(0,0,0)),ColorSequenceKeypoint.new(1,Color3.fromHSV(CP.H,CP.S,1))}
 
--- Update sat/val gradients when H changes (via RunService)
-AddConn(RunService.RenderStepped:Connect(function()
-    if CPPanel.Visible then
-        SatGrad.Color=ColorSequence.new{ColorSequenceKeypoint.new(0,Color3.new(1,1,1)),ColorSequenceKeypoint.new(1,Color3.fromHSV(CP.H,1,1))}
-        ValGrad.Color=ColorSequence.new{ColorSequenceKeypoint.new(0,Color3.new(0,0,0)),ColorSequenceKeypoint.new(1,Color3.fromHSV(CP.H,CP.S,1))}
-    end
-end))
-
--- Quick presets row: y=248 (after Preview at y=198+46+4=248)
-local PresetRow=Instance.new("Frame",CPPanel); PresetRow.Size=UDim2.new(1,-28,0,26); PresetRow.Position=UDim2.new(0,14,0,248)
-PresetRow.BackgroundTransparency=1
-local PLyt=Instance.new("UIListLayout",PresetRow); PLyt.FillDirection=Enum.FillDirection.Horizontal; PLyt.Padding=UDim.new(0,5); PLyt.VerticalAlignment=Enum.VerticalAlignment.Center
-local PresetColors={Color3.new(1,1,1),Color3.fromRGB(255,60,60),Color3.fromRGB(255,180,50),Color3.fromRGB(50,220,80),Color3.fromRGB(30,161,255),Color3.fromRGB(180,80,255),Color3.fromRGB(255,80,150),Color3.fromRGB(50,255,255),Color3.new(0,0,0)}
-for _,pc in ipairs(PresetColors) do
-    local pb=Instance.new("TextButton",PresetRow); pb.Size=UDim2.new(0,21,0,21); pb.BackgroundColor3=pc; pb.Text=""; pb.AutoButtonColor=false
-    Corner(pb,99); Stroke(pb,Color3.fromRGB(80,80,100),1)
-    pb.MouseButton1Click:Connect(function()
-        local h,s,v=Color3.toHSV(pc); CP.H=h; CP.S=s; CP.V=v
-        UpdateHSlider(h); UpdateSSlider(s); UpdateVSlider(v); CPUpdateUI()
-    end)
-end
-
--- Apply button: y=282
-local CPApply=Instance.new("TextButton",CPPanel); CPApply.Size=UDim2.new(1,-28,0,28); CPApply.Position=UDim2.new(0,14,0,282)
-CPApply.BackgroundColor3=Colors.PrimaryBlue; CPApply.Text="✓  Apply & Close"; CPApply.TextColor3=Color3.new(1,1,1); CPApply.Font=Enum.Font.GothamBold; CPApply.TextSize=13; CPApply.AutoButtonColor=false
-Corner(CPApply,13)
-CPApply.MouseEnter:Connect(function() Tw(CPApply,0.15,{BackgroundColor3=Colors.AccentGlow}) end)
-CPApply.MouseLeave:Connect(function() Tw(CPApply,0.15,{BackgroundColor3=Colors.PrimaryBlue}) end)
-CPApply.MouseButton1Down:Connect(function() Tw(CPApply,0.07,{BackgroundColor3=Colors.PrimaryBlue:Lerp(Color3.new(0,0,0),0.2)}) end)
-CPApply.MouseButton1Up:Connect(function() Tw(CPApply,0.12,{BackgroundColor3=Colors.AccentGlow}) end)
-
-local function CloseCPicker()
-    Tw(CPPanel,0.22,{BackgroundTransparency=1})
-    task.delay(0.23,function() CPPanel.Visible=false; CPPanel.BackgroundTransparency=0.45 end)
-end
-
-CPApply.MouseButton1Click:Connect(CloseCPicker)
-
-local function OpenCPicker(c3Key, anchorPos, callback)
-    local h,s,v=Color3.toHSV(Config[c3Key] or Color3.new(1,1,1))
-    CP.H=h; CP.S=s; CP.V=v
-    CP.callback=function(col) Config[c3Key]=col; if callback then callback(col) end end
-    UpdateHSlider(h); UpdateSSlider(s); UpdateVSlider(v)
-    CPUpdateUI()
-    local vp=Camera.ViewportSize; local pW,pH=252,320
-    local px=math.clamp(anchorPos.X-4, 4, vp.X-pW-4)
-    local py=anchorPos.Y+36
-    if py+pH > vp.Y-8 then py=anchorPos.Y-pH-8 end
-    py=math.clamp(py, 4, vp.Y-pH-4)
-    CPPanel.Position=UDim2.new(0,px,0,py)
-    CPPanel.Size=UDim2.new(0,pW,0,pH)
-    CPPanel.BackgroundTransparency=1; CPPanel.Visible=true
-    Tw(CPPanel,0.26,{BackgroundTransparency=0.45})
+function OpenCPicker(key, pos, cb)
+    local c = Config[key] or Color3.new(1,1,1); local h, s, v = c:ToHSV()
+    CP_D.H, CP_D.S, CP_D.V = h, s, v
+    CP_D.callback = function(nc) Config[key] = nc; if cb then cb(nc) end end
+    
+    -- Calibrated Restore: h = (180 - deg)/360  => deg = 180 - (h * 360)
+    local angle = math.rad(180 - (h * 360))
+    HueCursor.Position = UDim2.new(0.5, math.cos(angle) * 85, 0.5, math.sin(angle) * 85)
+    SVCursor.Position = UDim2.new(s, 0, 1-v, 0)
+    SVMap.BackgroundColor3 = Color3.fromHSV(h, 1, 1)
+    
+    local vp = Camera.ViewportSize
+    CPMain.Position = UDim2.new(0, math.clamp(pos.X + 80, 10, vp.X - 230), 0, math.clamp(pos.Y - 110, 10, vp.Y - 230))
+    CPMain.Visible = true; DismissBtn.Visible = true; CPMain.Size = UDim2.new(0,0,0,0); TwBack(CPMain, 0.35, {Size = UDim2.new(0, 220, 0, 220)})
 end
 
 -- [ STATS HUD ]
@@ -649,9 +816,42 @@ local Toast=Instance.new("Frame",ScreenGui); Toast.Size=UDim2.new(0,240,0,42); T
 Toast.BackgroundColor3=Color3.fromRGB(18,18,28); Toast.ZIndex=200; Toast.Visible=false; Corner(Toast,16)
 Stroke(Toast,Colors.PrimaryBlue,1.2)
 local ToastLbl=Instance.new("TextLabel",Toast); ToastLbl.Size=UDim2.new(1,0,1,0); ToastLbl.BackgroundTransparency=1; ToastLbl.Font=Enum.Font.GothamBold; ToastLbl.TextSize=15; ToastLbl.ZIndex=201
-local function ShowToast(msg,col)
-    ToastLbl.Text=msg; ToastLbl.TextColor3=col or Colors.PrimaryBlue; Toast.Visible=true; Toast.Position=UDim2.new(0.5,-120,1,10)
-    TwBack(Toast,0.32,{Position=UDim2.new(0.5,-120,1,-54)}); task.delay(2.2,function() Tw(Toast,0.25,{Position=UDim2.new(0.5,-120,1,10)}); task.delay(0.26,function() Toast.Visible=false end) end)
+-- Toast System with queue and rapid-toggle support
+local ToastActiveTween = nil
+local ToastHideThread = nil
+
+local function ShowToast(msg, col)
+    -- Cancel any pending hide operation
+    if ToastHideThread then
+        task.cancel(ToastHideThread)
+        ToastHideThread = nil
+    end
+    
+    -- Set text and color immediately
+    ToastLbl.Text = msg
+    ToastLbl.TextColor3 = col or Colors.PrimaryBlue
+    Toast.Visible = true
+    
+    -- If already visible, flash briefly then animate in fresh
+    if Toast.Position.Y.Scale < 0.95 then
+        -- Toast is currently showing, flash it quickly
+        Toast.Position = UDim2.new(0.5, -120, 1, -50)
+        TwBack(Toast, 0.15, {Position = UDim2.new(0.5, -120, 1, -54)})
+    else
+        -- Toast is hidden, animate in normally
+        Toast.Position = UDim2.new(0.5, -120, 1, 10)
+        TwBack(Toast, 0.25, {Position = UDim2.new(0.5, -120, 1, -54)})
+    end
+    
+    -- Schedule hide with new thread
+    ToastHideThread = task.delay(1.8, function()
+        Tw(Toast, 0.2, {Position = UDim2.new(0.5, -120, 1, 10)})
+        task.wait(0.21)
+        if Toast.Position.Y.Scale >= 0.95 then
+            Toast.Visible = false
+        end
+        ToastHideThread = nil
+    end)
 end
 
 -- FOV Circle
@@ -699,7 +899,7 @@ local function ApplyTheme(themeName)
     for _,tab in pairs(Tabs) do if tab.Btn.BackgroundTransparency<0.5 then Tw(tab.Btn,0.45,{BackgroundColor3=t.Primary}) end end
     Circle.Color=t.Primary
     Tw(StatHUD,0.45,{TextColor3=t.Primary}); Tw(TitleLine,0.45,{BackgroundColor3=t.Primary}); Tw(DDStroke,0.45,{Color=t.Primary})
-    Tw(CPApply,0.45,{BackgroundColor3=t.Primary}); Tw(CPPanelStroke,0.45,{Color=t.Primary})
+
 end
 
 -- [ WINDOW CONTROLS ]
@@ -724,12 +924,56 @@ end
 local function FullUnload()
     State.Running=false; RestoreAll(); Circle.Visible=false
     for _,c in ipairs(Connections) do pcall(function() c:Disconnect() end) end
-    for _,cn in pairs({WS_Loop,JP_Loop,NC_Conn,IJ_Conn,GM_Conn,AFK_Conn,FPS_DescConn,SafeTP_Conn}) do if cn then pcall(function() cn:Disconnect() end) end end
+    for _,cn in pairs({WS_Loop,JP_Loop,NC_Conn,IJ_Conn,AFK_Conn,FPS_DescConn,SafeTP_Conn}) do if cn then pcall(function() cn:Disconnect() end) end end
     Tw(MainFrame,0.22,{Size=UDim2.new(0,W*0.45,0,H*0.45),Position=UDim2.new(0.5,-W*0.225,0.5,-H*0.225)})
     task.delay(0.23,function() pcall(function() FloatingLayer:Destroy() end); pcall(function() CPGui:Destroy() end); pcall(function() ScreenGui:Destroy() end) end)
 end
 
-DotRed.MouseButton1Click:Connect(FullUnload)
+-- [ CONFIRMATION DIALOG ]
+-- Algorithm: Create a modal backdrop with a smooth scale-in transition
+local function ShowConfirm(title, desc, onYes)
+    local ModalBackdrop = Instance.new("TextButton", ScreenGui)
+    ModalBackdrop.Size = UDim2.new(1, 0, 1, 0); ModalBackdrop.BackgroundColor3 = Color3.new(0, 0, 0)
+    ModalBackdrop.BackgroundTransparency = 1; ModalBackdrop.Text = ""; ModalBackdrop.AutoButtonColor = false; ModalBackdrop.ZIndex = 500
+    Tw(ModalBackdrop, 0.3, {BackgroundTransparency = 0.5})
+
+    local Dialog = Instance.new("Frame", ModalBackdrop)
+    Dialog.Size = UDim2.new(0, 320, 0, 160); Dialog.Position = UDim2.new(0.5, 0, 0.5, 0)
+    Dialog.AnchorPoint = Vector2.new(0.5, 0.5); Dialog.BackgroundColor3 = Colors.WindowBg; Dialog.ZIndex = 501
+    Corner(Dialog, 16); Stroke(Dialog, Colors.Stroke, 1); Dialog.ClipsDescendants = true
+    Dialog.Size = UDim2.new(0, 0, 0, 0); TwSpring(Dialog, 0.5, {Size = UDim2.new(0, 320, 0, 160)})
+
+    local T = Instance.new("TextLabel", Dialog)
+    T.Size = UDim2.new(1, 0, 0, 50); T.BackgroundTransparency = 1
+    T.Text = title; T.TextColor3 = Colors.TextMain; T.Font = Enum.Font.GothamBold; T.TextSize = 18; T.ZIndex = 502
+
+    local D = Instance.new("TextLabel", Dialog)
+    D.Size = UDim2.new(1, -40, 0, 40); D.Position = UDim2.new(0, 20, 0, 45); D.BackgroundTransparency = 1
+    D.Text = desc; D.TextColor3 = Colors.TextSub; D.Font = Enum.Font.GothamMedium; D.TextSize = 14; D.TextWrapped = true; D.ZIndex = 502
+
+    local BtnGroup = Instance.new("Frame", Dialog)
+    BtnGroup.Size = UDim2.new(1, -40, 0, 36); BtnGroup.Position = UDim2.new(0, 20, 1, -56); BtnGroup.BackgroundTransparency = 1; BtnGroup.ZIndex = 502
+    local BLyt = Instance.new("UIListLayout", BtnGroup); BLyt.FillDirection = Enum.FillDirection.Horizontal; BLyt.Padding = UDim.new(0, 12); BLyt.HorizontalAlignment = Enum.HorizontalAlignment.Center
+
+    local function MakeBtn(txt, col, click)
+        local b = Instance.new("TextButton", BtnGroup); b.Size = UDim2.new(0.45, 0, 1, 0); b.BackgroundColor3 = col
+        b.Text = txt; b.TextColor3 = Colors.TextMain; b.Font = Enum.Font.GothamBold; b.TextSize = 14; b.ZIndex = 503; Corner(b, 10)
+        b.MouseButton1Click:Connect(function()
+            Tw(Dialog, 0.2, {Size = UDim2.new(0, 0, 0, 0)})
+            Tw(ModalBackdrop, 0.2, {BackgroundTransparency = 1})
+            task.delay(0.2, function() ModalBackdrop:Destroy() end)
+            if click then click() end
+        end)
+    end
+    MakeBtn("ยกเลิก", Color3.fromRGB(60, 60, 80))
+    MakeBtn("ยืนยัน", Colors.Red, onYes)
+end
+
+DotRed.MouseButton1Click:Connect(function()
+    ShowConfirm("ยืนยันการปิดสคริปต์", "คุณแน่ใจหรือไม่ว่าต้องการปิดเมนูและหยุดการทำงานทั้งหมด?", function()
+        FullUnload()
+    end)
+end)
 DotYellow.MouseButton1Click:Connect(function()
     if State.isMaximized then return end; State.isMinimized=not State.isMinimized
     if State.isMinimized then State.preHideSize=MainFrame.Size; Tw(MainFrame,0.28,{Size=UDim2.new(0,State.preHideSize.X.Offset,0,46)}); task.delay(0.1,function() Body.Visible=false end)
@@ -853,12 +1097,137 @@ local function BuildTab(name)
     end
 
     -- Toggle
-    function E:Toggle(t,st,key,onChange,customText)
+    function E:Toggle(t,st,key,onChange,customText,keybindName)
         local _,C=Row(t,st); local isOn=Config[key]
-        local Stat=Instance.new("TextLabel",C); Stat.Size=UDim2.new(0,30,1,0); Stat.BackgroundTransparency=1
+        -- If keybind enabled, adjust layout
+        -- Auto-create keybind entry if not exists
+        if keybindName then
+            if not Config.Keybinds[keybindName] then
+                Config.Keybinds[keybindName] = {Type=nil, Key=nil, Enabled=false}
+            end
+        end
+        local hasKeybind = keybindName ~= nil
+        
+        local Stat=Instance.new("TextLabel",C); 
+        if hasKeybind then
+            Stat.Size=UDim2.new(0,25,1,0)
+        else
+            Stat.Size=UDim2.new(0,30,1,0)
+        end
+        Stat.BackgroundTransparency=1
         Stat.Text=isOn and(customText and customText[1] or "On")or(customText and customText[2] or "Off")
         Stat.TextColor3=isOn and Colors.Green or Color3.fromRGB(120,120,140); Stat.Font=Enum.Font.GothamBold; Stat.TextSize=13; Stat.TextXAlignment=Enum.TextXAlignment.Right
+        
+        -- Keybind Button (if enabled)
+        local KeyBtn, ClearBtn
+        if hasKeybind then
+            -- Container for keybind buttons
+            local KeybindContainer = Instance.new("Frame",C)
+            KeybindContainer.Size=UDim2.new(0,70,0,22)
+            KeybindContainer.BackgroundTransparency=1
+            KeybindContainer.LayoutOrder=1
+            
+            KeyBtn=Instance.new("TextButton",KeybindContainer)
+            KeyBtn.Size=UDim2.new(0,50,0,22)
+            KeyBtn.Position=UDim2.new(0,0,0,0)
+            KeyBtn.BackgroundColor3=Colors.DarkElement
+            KeyBtn.TextColor3=Colors.TextSub
+            KeyBtn.Font=Enum.Font.GothamBold
+            KeyBtn.TextSize=10
+            KeyBtn.AutoButtonColor=false
+            Corner(KeyBtn,6)
+            local KBS=Stroke(KeyBtn,Colors.Stroke,0.8)
+            
+            -- Clear button (×)
+            ClearBtn=Instance.new("TextButton",KeybindContainer)
+            ClearBtn.Size=UDim2.new(0,18,0,22)
+            ClearBtn.Position=UDim2.new(0,52,0,0)
+            ClearBtn.BackgroundColor3=Color3.fromRGB(80,60,60)
+            ClearBtn.TextColor3=Colors.TextSub
+            ClearBtn.Font=Enum.Font.GothamBold
+            ClearBtn.TextSize=12
+            ClearBtn.Text="×"
+            ClearBtn.AutoButtonColor=false
+            Corner(ClearBtn,6)
+            local ClearStroke=Stroke(ClearBtn,Color3.fromRGB(120,80,80),0.8)
+            
+            local function UpdateKeyDisplay()
+                local kb=Config.Keybinds[keybindName]
+                if kb and kb.Enabled and kb.Key then
+                    if kb.Type=="Mouse" then
+                        KeyBtn.Text="🖱️M"..tostring(kb.Key)
+                        KeyBtn.TextColor3=Colors.PrimaryBlue
+                    else
+                        local keyName=kb.Key.Name:gsub("Enum.KeyCode.","")
+                        KeyBtn.Text=""..keyName:sub(1,3)
+                        KeyBtn.TextColor3=Colors.PrimaryBlue
+                    end
+                    -- Show clear button when keybind is set
+                    ClearBtn.Visible=true
+                    KeybindContainer.Size=UDim2.new(0,70,0,22)
+                else
+                    KeyBtn.Text="กด..."
+                    KeyBtn.TextColor3=Colors.TextSub
+                    -- Hide clear button when no keybind
+                    ClearBtn.Visible=false
+                    KeybindContainer.Size=UDim2.new(0,50,0,22)
+                end
+            end
+            UpdateKeyDisplay()
+            
+            KeyBtn.MouseEnter:Connect(function() 
+                Tw(KeyBtn,0.15,{BackgroundColor3=Color3.fromRGB(58,58,75)})
+                Tw(KBS,0.15,{Color=Colors.PrimaryBlue,Thickness=1.2})
+            end)
+            KeyBtn.MouseLeave:Connect(function() 
+                if not State.Binding then
+                    Tw(KeyBtn,0.15,{BackgroundColor3=Colors.DarkElement})
+                    Tw(KBS,0.15,{Color=Colors.Stroke,Thickness=0.8})
+                end
+            end)
+            KeyBtn.MouseButton1Click:Connect(function()
+                KeyBtn.Text="[กด]"
+                Tw(KeyBtn,0.15,{BackgroundColor3=Colors.PrimaryBlue})
+                State.Binding=function(io,k)
+                    local kb=Config.Keybinds[keybindName]
+                    kb.Type=io
+                    kb.Key=k
+                    kb.Enabled=true
+                    Tw(KeyBtn,0.2,{BackgroundColor3=Colors.DarkElement})
+                    Tw(KBS,0.2,{Color=Colors.Stroke,Thickness=0.8})
+                    UpdateKeyDisplay()
+                    ShowToast("🔧 ตั้งค่าปุ่ม "..t..": "..(io=="Mouse" and "MB"..tostring(k) or k.Name),Colors.PrimaryBlue)
+                end
+            end)
+            
+            -- Clear button events
+            ClearBtn.MouseEnter:Connect(function()
+                Tw(ClearBtn,0.15,{BackgroundColor3=Colors.Red,TextColor3=Color3.new(1,1,1)})
+                Tw(ClearStroke,0.15,{Color=Colors.Red,Thickness=1.2})
+            end)
+            ClearBtn.MouseLeave:Connect(function()
+                Tw(ClearBtn,0.15,{BackgroundColor3=Color3.fromRGB(80,60,60),TextColor3=Colors.TextSub})
+                Tw(ClearStroke,0.15,{Color=Color3.fromRGB(120,80,80),Thickness=0.8})
+            end)
+            ClearBtn.MouseButton1Click:Connect(function()
+                local kb=Config.Keybinds[keybindName]
+                if kb then
+                    kb.Enabled=false
+                    kb.Key=nil
+                    kb.Type=nil
+                    UpdateKeyDisplay()
+                    ShowToast("ลบปุ่ม "..t.." แล้ว",Colors.Red)
+                end
+            end)
+            
+            -- Update display periodically
+            AddConn(RunService.RenderStepped:Connect(function()
+                UpdateKeyDisplay()
+            end))
+        end
+        
         local Track=Instance.new("TextButton",C); Track.Size=UDim2.new(0,46,0,26); Track.Text=""
+        Track.ZIndex=2
         Track.BackgroundColor3=isOn and Colors.PrimaryBlue or Colors.Toggle_Off; Track.AutoButtonColor=false; Corner(Track,99)
         local TS=Stroke(Track,isOn and Colors.AccentGlow or Color3.fromRGB(70,70,90),0.8)
         local Circ=Instance.new("Frame",Track); Circ.Size=UDim2.new(0,20,0,20)
@@ -866,21 +1235,43 @@ local function BuildTab(name)
         Circ.BackgroundColor3=Color3.new(1,1,1); Corner(Circ,99)
         local CG=Instance.new("Frame",Circ); CG.Size=UDim2.new(0,7,0,7); CG.Position=UDim2.new(0.5,-3.5,0.5,-3.5)
         CG.BackgroundColor3=Colors.PrimaryBlue; CG.BackgroundTransparency=isOn and 0.2 or 1; CG.BorderSizePixel=0; Corner(CG,99)
-        Track.MouseEnter:Connect(function() Tw(TS,0.2,{Thickness=1.3,Color=Config[key] and Colors.PrimaryBlue or Color3.fromRGB(100,100,120)}) end)
-        Track.MouseLeave:Connect(function() Tw(TS,0.2,{Thickness=0.8,Color=Config[key] and Colors.AccentGlow or Color3.fromRGB(70,70,90)}) end)
-        Track.MouseButton1Click:Connect(function()
-            Config[key]=not Config[key]; local on=Config[key]
+        
+        -- Store UI references for external updates
+        if not State.ToggleUIRefs then State.ToggleUIRefs = {} end
+        State.ToggleUIRefs[key] = {
+            Stat = Stat,
+            Track = Track,
+            Circ = Circ,
+            CG = CG,
+            TS = TS,
+            customText = customText,
+            onChange = onChange
+        }
+        
+        -- Function to update toggle UI
+        local function UpdateToggleUI()
+            local on = Config[key]
             Stat.Text=on and(customText and customText[1] or "On")or(customText and customText[2] or "Off")
             Tw(Stat,0.2,{TextColor3=on and Colors.Green or Color3.fromRGB(120,120,140)})
             Tw(Track,0.25,{BackgroundColor3=on and Colors.PrimaryBlue or Colors.Toggle_Off})
             Tw(TS,0.25,{Color=on and Colors.AccentGlow or Color3.fromRGB(70,70,90),Thickness=0.8})
-            
-            -- Stretch Animation
             Tw(Circ,0.15,{Size=UDim2.new(0,26,0,20)})
             task.delay(0.12, function() TwSpring(Circ,0.35,{Size=UDim2.new(0,20,0,20),Position=on and UDim2.new(1,-23,0.5,-10) or UDim2.new(0,3,0.5,-10)}) end)
-            
             Tw(CG,0.25,{BackgroundTransparency=on and 0.2 or 1})
-            if onChange then onChange(on) end
+        end
+        
+        Track.MouseEnter:Connect(function() Tw(TS,0.2,{Thickness=1.3,Color=Config[key] and Colors.PrimaryBlue or Color3.fromRGB(100,100,120)}) end)
+        Track.MouseLeave:Connect(function() Tw(TS,0.2,{Thickness=0.8,Color=Config[key] and Colors.AccentGlow or Color3.fromRGB(70,70,90)}) end)
+        Track.MouseButton1Click:Connect(function()
+            Config[key]=not Config[key]
+            UpdateToggleUI()
+            if onChange then onChange(Config[key]) end
+            -- Toast notification สำหรับทุก Toggle
+            local isEnabled = Config[key]
+            local emoji = isEnabled and "✅" or "❌"
+            local action = isEnabled and "เปิด" or "ปิด"
+            local toastColor = isEnabled and Colors.Green or Colors.Red
+            ShowToast(emoji .. " " .. action .. " : " .. t, toastColor)
         end)
         return Track
     end
@@ -938,7 +1329,7 @@ local function BuildTab(name)
         local B=Instance.new("TextButton",C); B.Size=UDim2.new(0,135,0,30); B.BackgroundColor3=Colors.DarkElement; B.Text=""; B.AutoButtonColor=false; Corner(B,8); local BStk=Stroke(B,Colors.Stroke,1)
         local BLbl=Instance.new("TextLabel",B); BLbl.Size=UDim2.new(1,-24,1,0); BLbl.Position=UDim2.new(0,9,0,0)
         BLbl.BackgroundTransparency=1; BLbl.Text=tostring(Config[key]); BLbl.TextColor3=Colors.TextMain; BLbl.Font=Enum.Font.GothamBold; BLbl.TextSize=13; BLbl.TextXAlignment=Enum.TextXAlignment.Left; BLbl.TextTruncate=Enum.TextTruncate.AtEnd
-        local BArr=Instance.new("TextLabel",B); BArr.Size=UDim2.new(0,20,1,0); BArr.Position=UDim2.new(1,-22,0,0); BArr.BackgroundTransparency=1; BArr.Text="▾"; BArr.TextColor3=Colors.PrimaryBlue; BArr.TextSize=15
+        local BArr=Instance.new("TextLabel",B); BArr.Size=UDim2.new(0,20,1,0); BArr.Position=UDim2.new(1,-22,0,0); BArr.BackgroundTransparency=1; BArr.Text="☯"; BArr.TextColor3=Colors.PrimaryBlue; BArr.TextSize=15
         B.MouseEnter:Connect(function() Tw(B,0.15,{BackgroundColor3=Color3.fromRGB(58,58,75)}); Tw(BStk,0.15,{Color=Colors.PrimaryBlue,Thickness=1.5}); Tw(BArr,0.15,{Position=UDim2.new(1,-22,0,2)}) end)
         B.MouseLeave:Connect(function() if not DDContainer.Visible then Tw(B,0.15,{BackgroundColor3=Colors.DarkElement}); Tw(BStk,0.15,{Color=Colors.Stroke,Thickness=1}); Tw(BArr,0.15,{Position=UDim2.new(1,-22,0,0)}) end end)
         local liveOpts=opts
@@ -1021,6 +1412,145 @@ local function BuildTab(name)
         return B
     end
 
+    -- Keybind (New: สำหรับ Hotkeys Tab - มี Toggle เปิด/ปิดการใช้งานปุ่ม)
+    function E:Keybind(featureName, featureKey, defaultType, defaultKey, onToggle)
+        local R,C=Row(featureName, "กดปุ่มเพื่อเปิด/ปิดฟังชั่นนี้")
+        
+        -- สร้าง Container สำหรับปุ่ม
+        local BtnContainer = Instance.new("Frame", C)
+        BtnContainer.Size = UDim2.new(0, 140, 0, 34)
+        BtnContainer.BackgroundTransparency = 1
+        
+        local Lyt = Instance.new("UIListLayout", BtnContainer)
+        Lyt.FillDirection = Enum.FillDirection.Horizontal
+        Lyt.Padding = UDim.new(0, 6)
+        Lyt.HorizontalAlignment = Enum.HorizontalAlignment.Right
+        Lyt.VerticalAlignment = Enum.VerticalAlignment.Center
+        
+        -- ปุ่ม Toggle เปิด/ปิดการใช้งาน Keybind
+        local ToggleBtn = Instance.new("TextButton", BtnContainer)
+        ToggleBtn.Size = UDim2.new(0, 36, 0, 28)
+        ToggleBtn.BackgroundColor3 = Colors.Toggle_Off
+        ToggleBtn.Text = "OFF"
+        ToggleBtn.TextColor3 = Colors.TextSub
+        ToggleBtn.Font = Enum.Font.GothamBold
+        ToggleBtn.TextSize = 10
+        ToggleBtn.AutoButtonColor = false
+        Corner(ToggleBtn, 8)
+        
+        -- ปุ่มตั้งค่า Key
+        local KeyBtn = Instance.new("TextButton", BtnContainer)
+        KeyBtn.Size = UDim2.new(0, 90, 0, 28)
+        KeyBtn.BackgroundColor3 = Colors.DarkElement
+        KeyBtn.TextColor3 = Colors.TextMain
+        KeyBtn.Font = Enum.Font.GothamBold
+        KeyBtn.TextSize = 12
+        KeyBtn.AutoButtonColor = false
+        KeyBtn.TextTruncate = Enum.TextTruncate.AtEnd
+        Corner(KeyBtn, 8)
+        local KeyBS = Stroke(KeyBtn, Colors.Stroke, 1)
+        
+        -- ฟังก์ชันอัพเดตการแสดงผล
+        local function UpdateDisplay()
+            local kb = Config.Keybinds[featureKey]
+            if not kb then
+                kb = {Type=defaultType or "Keyboard", Key=defaultKey or Enum.KeyCode.Q, Enabled=false}
+                Config.Keybinds[featureKey] = kb
+            end
+            
+            -- อัพเดตปุ่ม Toggle
+            if kb.Enabled then
+                ToggleBtn.Text = "ON"
+                ToggleBtn.BackgroundColor3 = Colors.Green
+                ToggleBtn.TextColor3 = Color3.new(1,1,1)
+            else
+                ToggleBtn.Text = "OFF"
+                ToggleBtn.BackgroundColor3 = Colors.Toggle_Off
+                ToggleBtn.TextColor3 = Colors.TextSub
+            end
+            
+            -- อัพเดตปุ่ม Key
+            if kb.Type == "Mouse" then
+                KeyBtn.Text = "🖱️ MB" .. tostring(kb.Key)
+            else
+                KeyBtn.Text = " " .. (kb.Key and kb.Key.Name or "None")
+            end
+        end
+        
+        UpdateDisplay()
+        
+        -- Event: Toggle เปิด/ปิดการใช้งาน
+        ToggleBtn.MouseEnter:Connect(function() 
+            Tw(ToggleBtn, 0.15, {BackgroundColor3 = ToggleBtn.Text=="ON" and Color3.fromRGB(80,255,120) or Color3.fromRGB(70,70,90)})
+        end)
+        ToggleBtn.MouseLeave:Connect(function() 
+            Tw(ToggleBtn, 0.15, {BackgroundColor3 = ToggleBtn.Text=="ON" and Colors.Green or Colors.Toggle_Off})
+        end)
+        ToggleBtn.MouseButton1Click:Connect(function()
+            local kb = Config.Keybinds[featureKey]
+            kb.Enabled = not kb.Enabled
+            UpdateDisplay()
+            if onToggle then onToggle(kb.Enabled) end
+            ShowToast(kb.Enabled and "✅ เปิดใช้งานปุ่ม: " .. featureName or "❌ ปิดใช้งานปุ่ม: " .. featureName, kb.Enabled and Colors.Green or Colors.Red)
+        end)
+        
+        -- Event: ตั้งค่า Key
+        KeyBtn.MouseEnter:Connect(function() Tw(KeyBtn, 0.15, {BackgroundColor3 = Color3.fromRGB(58,58,75)}); Tw(KeyBS, 0.15, {Color = Colors.PrimaryBlue}) end)
+        KeyBtn.MouseLeave:Connect(function() if not State.Binding then Tw(KeyBtn, 0.15, {BackgroundColor3 = Colors.DarkElement}); Tw(KeyBS, 0.15, {Color = Colors.Stroke}) end end)
+        KeyBtn.MouseButton1Click:Connect(function()
+            KeyBtn.Text = "[ กดปุ่ม... ]"; Tw(KeyBtn, 0.15, {BackgroundColor3 = Colors.PrimaryBlue})
+            State.Binding = function(io, k)
+                local kb = Config.Keybinds[featureKey]
+                kb.Type = io
+                kb.Key = k
+                Tw(KeyBtn, 0.2, {BackgroundColor3 = Colors.DarkElement}); Tw(KeyBS, 0.2, {Color = Colors.Stroke})
+                UpdateDisplay()
+                ShowToast("🔧 ตั้งค่าปุ่ม " .. featureName .. " เป็น: " .. (io=="Mouse" and "MB"..tostring(k) or k.Name), Colors.PrimaryBlue)
+            end
+        end)
+        
+        -- เก็บ reference สำหรับอัพเดตภายหลัง
+        AddConn(RunService.RenderStepped:Connect(function()
+            local kb = Config.Keybinds[featureKey]
+            if kb then
+                local expectedText = kb.Enabled and "ON" or "OFF"
+                if ToggleBtn.Text ~= expectedText then
+                    UpdateDisplay()
+                end
+            end
+        end))
+        
+        return {Toggle = ToggleBtn, Key = KeyBtn, Update = UpdateDisplay}
+    end
+
+    -- RunButton
+    function E:RunButton(t,st,btnTxt,col,onClick)
+        local _,C = Row(t,st)
+        local Btn = Instance.new("TextButton",C); Btn.Size=UDim2.new(0,135,0,30); Btn.BackgroundColor3=col or Colors.PrimaryBlue
+        Btn.Text=""; Btn.AutoButtonColor=false; Corner(Btn,8); local BS=Stroke(Btn,Colors.Stroke,1)
+        
+        -- Logic: If text is provided, show it; if specific icon requested, show icon
+        local BtnContent = Instance.new("Frame",Btn); BtnContent.Size=UDim2.new(1,0,1,0); BtnContent.BackgroundTransparency=1
+        local BCLyt = Instance.new("UIListLayout",BtnContent); BCLyt.FillDirection=Enum.FillDirection.Horizontal; BCLyt.HorizontalAlignment=Enum.HorizontalAlignment.Center; BCLyt.VerticalAlignment=Enum.VerticalAlignment.Center; BCLyt.Padding=UDim.new(0,6)
+
+        if btnTxt == "ICON_CLICK" then
+            Btn.Size = UDim2.new(0, 80, 0, 30)
+            local ClickIcon = Instance.new("ImageLabel",BtnContent); ClickIcon.Size=UDim2.new(0,18,0,18)
+            ClickIcon.BackgroundTransparency=1; ClickIcon.Image="rbxthumb://type=Asset&id=9728118922&w=150&h=150"
+            ClickIcon.ImageColor3=Colors.TextMain; ClickIcon.ScaleType=Enum.ScaleType.Fit
+        else
+            local Lbl = Instance.new("TextLabel",BtnContent); Lbl.Size=UDim2.new(1,0,1,0); Lbl.BackgroundTransparency=1
+            Lbl.Text=btnTxt; Lbl.TextColor3=Colors.TextMain; Lbl.Font=Enum.Font.GothamBold; Lbl.TextSize=13
+        end
+
+        Btn.MouseEnter:Connect(function() Tw(Btn,0.15,{BackgroundColor3=(col or Colors.PrimaryBlue):Lerp(Color3.new(1,1,1),0.14)}); Tw(BS,0.15,{Color=Colors.AccentGlow}) end)
+        Btn.MouseLeave:Connect(function() Tw(Btn,0.15,{BackgroundColor3=col or Colors.PrimaryBlue}); Tw(BS,0.15,{Color=Colors.Stroke}) end)
+        Btn.MouseButton1Down:Connect(function() Tw(Btn,0.08,{BackgroundColor3=(col or Colors.PrimaryBlue):Lerp(Color3.new(0,0,0),0.18)}) end)
+        Btn.MouseButton1Up:Connect(function() Tw(Btn,0.18,{BackgroundColor3=col or Colors.PrimaryBlue}) end)
+        Btn.MouseButton1Click:Connect(function() if onClick then onClick() end end)
+        return Btn
+    end
+
     -- Button
     function E:Button(label,col,onClick)
         local Btn=Instance.new("TextButton",TabPage); Btn.Size=UDim2.new(1,0,0,42); Btn.BackgroundColor3=col or Colors.PrimaryBlue
@@ -1065,10 +1595,91 @@ local function GetESP(char)
     local hlt=Instance.new("Highlight",ESP_Folder); hlt.OutlineTransparency=0.1; hlt.Enabled=false
     ESP_Cache[char]={Gui=bGui,Label=lbl,Highlight=hlt}; return ESP_Cache[char]
 end
+
 local function ClearESP(char)
     if not ESP_Cache[char] then return end
     pcall(function() ESP_Cache[char].Gui:Destroy() end); pcall(function() ESP_Cache[char].Highlight:Destroy() end); ESP_Cache[char]=nil
 end
+
+-- [ UNIVERSAL CHARACTER PARTS FINDER ]
+local function GetCharacterParts(char)
+    if not char or not char:IsA("Model") then return nil, nil, nil end
+    
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    if not humanoid then 
+        for _, obj in ipairs(char:GetDescendants()) do
+            if obj:IsA("Humanoid") then
+                humanoid = obj
+                break
+            end
+        end
+    end
+    
+    local head = char:FindFirstChild("Head")
+    if not head and humanoid then
+        head = humanoid.Parent:FindFirstChild("Head")
+    end
+    if not head then
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") and (part.Name:lower():match("head") or part.Name:lower():match("face")) then
+                head = part
+                break
+            end
+        end
+    end
+    
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp and humanoid then
+        hrp = humanoid.RootPart
+    end
+    if not hrp then
+        hrp = char.PrimaryPart
+    end
+    if not hrp then
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") and (part.Name:lower():match("torso") or part.Name:lower():match("body") or part.Name:lower():match("root") or part.Name:lower():match("main")) then
+                hrp = part
+                break
+            end
+        end
+    end
+    if not hrp then
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                hrp = part
+                break
+            end
+        end
+    end
+    
+    return head, hrp, humanoid
+end
+
+-- [ AIMLOCK TARGET PART SELECTOR ]
+local function GetTargetPart(char)
+    if not char or not char:IsA("Model") then return nil end
+    
+    local head, hrp, humanoid = GetCharacterParts(char)
+    local targetMode = Config.AimTargetPart or "Auto"
+    
+    if targetMode == "Head" then
+        return head or hrp
+    elseif targetMode == "Torso" then
+        local torso = char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso") or char:FindFirstChild("LowerTorso")
+        if not torso and humanoid then
+            torso = humanoid.RootPart
+        end
+        return torso or hrp or head
+    elseif targetMode == "HumanoidRootPart" then
+        return hrp or head
+    else
+        if head then return head end
+        local torso = char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso")
+        if torso then return torso end
+        return hrp or char:FindFirstChildWhichIsA("BasePart")
+    end
+end
+
 local function IsVisible(tp)
     if not Config.WallCheck then return true end
     local lpc=LocalPlayer.Character; if not lpc then return true end
@@ -1076,6 +1687,7 @@ local function IsVisible(tp)
     local res=workspace:Raycast(Camera.CFrame.Position,tp.Position-Camera.CFrame.Position,params)
     if res then return res.Instance:IsDescendantOf(tp.Parent) end; return true
 end
+
 local function CacheNPC(obj)
     if not obj:IsA("Humanoid") then return end; local char=obj.Parent
     if char and char:IsA("Model") and char~=LocalPlayer.Character then
@@ -1188,38 +1800,72 @@ end
 local function SetJumpPower(on) if JP_Loop then JP_Loop:Disconnect(); JP_Loop=nil end; if on then JP_Loop=RunService.Heartbeat:Connect(function() local h=LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid"); if h then h.UseJumpPower=true; h.JumpPower=Config.JumpPower end end) else local h=LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid"); if h then h.UseJumpPower=true; h.JumpPower=50 end end end
 local function SetNoclip(on) if NC_Conn then NC_Conn:Disconnect(); NC_Conn=nil end; if on then NC_Conn=RunService.Stepped:Connect(function() local lpc=LocalPlayer.Character; if lpc then for _,p in ipairs(lpc:GetDescendants()) do if p:IsA("BasePart") then p.CanCollide=false end end end end) else local lpc=LocalPlayer.Character; if lpc then for _,p in ipairs(lpc:GetDescendants()) do pcall(function() if p:IsA("BasePart") then p.CanCollide=true end end) end end end end
 local function SetInfJump(on) if IJ_Conn then IJ_Conn:Disconnect(); IJ_Conn=nil end; if on then IJ_Conn=UIS.JumpRequest:Connect(function() local h=LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid"); if h then h:ChangeState(Enum.HumanoidStateType.Jumping) end end) end end
-local GM_CharAdded = nil
-local function SetGodMode(on)
-    if GM_Conn then GM_Conn:Disconnect(); GM_Conn=nil end
-    if GM_CharAdded then GM_CharAdded:Disconnect(); GM_CharAdded=nil end
-    local function applyGod(char)
-        local h = char:WaitForChild("Humanoid", 3)
-        if not h then return end
-        h.MaxHealth = 9e9; h.Health = 9e9; h.BreakJointsOnDeath = false; pcall(function() h.RequiresNeck = false end)
-        if GM_Conn then GM_Conn:Disconnect() end
-        GM_Conn = h.HealthChanged:Connect(function() if Config.GodMode and h.Health < 9e9 then h.Health = 9e9 end end)
-    end
+
+local function SetAntiAFK(on) if AFK_Conn then AFK_Conn:Disconnect(); AFK_Conn=nil end; if on and VirtualUser then AFK_Conn=LocalPlayer.Idled:Connect(function() VirtualUser:CaptureController(); VirtualUser:ClickButton2(Vector2.new()) end) end end
+local function SetAntiStun(on)
+    if AntiStun_Loop then AntiStun_Loop:Disconnect(); AntiStun_Loop=nil end
     if on then
-        if LocalPlayer.Character then applyGod(LocalPlayer.Character) end
-        GM_CharAdded = LocalPlayer.CharacterAdded:Connect(function(char) if Config.GodMode then task.wait(0.5); applyGod(char) end end)
-    else
-        local lpc=LocalPlayer.Character
-        if lpc then
-            local h=lpc:FindFirstChildOfClass("Humanoid")
-            if h then h.MaxHealth=100; h.Health=100; h.BreakJointsOnDeath=true; pcall(function() h.RequiresNeck=true end) end
-        end
+        AntiStun_Loop=RunService.Stepped:Connect(function()
+            pcall(function()
+                local h=LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+                if h then
+                    h:SetStateEnabled(Enum.HumanoidStateType.FallingDown,false)
+                    h:SetStateEnabled(Enum.HumanoidStateType.Ragdoll,false)
+                    h.PlatformStand=false
+                    h.Sit=false
+                    if h.WalkSpeed<16 then h.WalkSpeed=16 end
+                    if h.JumpPower<50 then h.JumpPower=50 end
+                end
+            end)
+        end)
     end
 end
-local function SetAntiAFK(on) if AFK_Conn then AFK_Conn:Disconnect(); AFK_Conn=nil end; if on and VirtualUser then AFK_Conn=LocalPlayer.Idled:Connect(function() VirtualUser:CaptureController(); VirtualUser:ClickButton2(Vector2.new()) end) end end
 local _origMaxZoom = LocalPlayer.CameraMaxZoomDistance
+local _origMinZoom = 0.5  -- Roblox default min zoom (first-person)
 local function SetInfZoom(on)
     if on then
-        _origMaxZoom = LocalPlayer.CameraMaxZoomDistance -- save current
-        LocalPlayer.CameraMaxZoomDistance = math.huge    -- unlimited
-        LocalPlayer.CameraMinZoomDistance = 0            -- also allow zoom in
+        _origMaxZoom = LocalPlayer.CameraMaxZoomDistance -- save current max
+        LocalPlayer.CameraMaxZoomDistance = math.huge    -- unlimited max zoom
+        LocalPlayer.CameraMinZoomDistance = 0            -- allow first-person (min zoom)
     else
-        LocalPlayer.CameraMaxZoomDistance = _origMaxZoom -- restore
+        LocalPlayer.CameraMaxZoomDistance = _origMaxZoom  -- restore max
+        LocalPlayer.CameraMinZoomDistance = _origMinZoom           -- restore default min (allow first-person)
     end
+end
+local function UpdateInteractables()
+    local function ProcessPrompt(prompt)
+        if not prompt:IsA("ProximityPrompt") then return end
+        if not OriginalInteractData[prompt] then
+            pcall(function()
+                OriginalInteractData[prompt] = {
+                    HoldDuration = prompt.HoldDuration,
+                    MaxActivationDistance = prompt.MaxActivationDistance
+                }
+            end)
+        end
+        local orig = OriginalInteractData[prompt]
+        if Config.InstantPress then
+            pcall(function() prompt.HoldDuration = 0 end)
+        elseif orig then
+            pcall(function() prompt.HoldDuration = orig.HoldDuration end)
+        end
+        if Config.AuraRange then
+            pcall(function() prompt.MaxActivationDistance = 50 end)
+        elseif orig then
+            pcall(function() prompt.MaxActivationDistance = orig.MaxActivationDistance end)
+        end
+    end
+    pcall(function()
+        for _, v in ipairs(workspace:GetDescendants()) do ProcessPrompt(v) end
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr.Character then
+                for _, v in ipairs(plr.Character:GetDescendants()) do ProcessPrompt(v) end
+            end
+            if plr:FindFirstChild("Backpack") then
+                for _, v in ipairs(plr.Backpack:GetDescendants()) do ProcessPrompt(v) end
+            end
+        end
+    end)
 end
 local function UpdateXray(cache,enabled) if enabled then for _,v in ipairs(workspace:GetDescendants()) do if v:IsA("BasePart") then local ic=v.Parent:FindFirstChildWhichIsA("Humanoid") or (v.Parent.Parent and v.Parent.Parent:FindFirstChildWhichIsA("Humanoid")); if not ic then if not cache[v] then cache[v]=v.LocalTransparencyModifier end; v.LocalTransparencyModifier=0.5 end end end else for p,o in pairs(cache) do pcall(function() if p and p.Parent then p.LocalTransparencyModifier=o end end) end; table.clear(cache) end end
 local CFly_Loop = nil
@@ -1266,32 +1912,286 @@ local function DisableFPSBoost() if FPS_DescConn then FPS_DescConn:Disconnect();
 local function StartSafeTP(tp) if SafeTP_Conn then SafeTP_Conn:Disconnect(); SafeTP_Conn=nil end; SafeTP_Conn=RunService.Heartbeat:Connect(function(dt) if not Config.TPGOSwitch then SafeTP_Conn:Disconnect(); SafeTP_Conn=nil; return end; local myHRP=LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart"); local tHRP=tp.Character and tp.Character:FindFirstChild("HumanoidRootPart"); if not(myHRP and tHRP) then return end; if (tHRP.Position-myHRP.Position).Magnitude>4 then myHRP.CFrame=myHRP.CFrame:Lerp(CFrame.new(tHRP.Position+tHRP.CFrame.LookVector*3+Vector3.new(0,2,0)),math.clamp(dt*math.clamp(Config.TPFlightSens,10,500)*0.12,0.01,0.4)) end end) end
 local function StopSafeTP() if SafeTP_Conn then SafeTP_Conn:Disconnect(); SafeTP_Conn=nil end end
 
-local function ProcessInteractObj(obj)
-    if obj:IsA("ProximityPrompt") then
-        if not OriginalInteractData[obj] then OriginalInteractData[obj]={Duration=obj.HoldDuration,Distance=obj.MaxActivationDistance,LOS=obj.RequiresLineOfSight} end
-        obj.HoldDuration = Config.InstantPress and 0 or OriginalInteractData[obj].Duration
-        obj.MaxActivationDistance = Config.AuraRange and 50 or OriginalInteractData[obj].Distance
-        if Config.AuraRange then obj.RequiresLineOfSight = false else obj.RequiresLineOfSight = OriginalInteractData[obj].LOS end
-    elseif obj:IsA("ClickDetector") then
-        if not OriginalInteractData[obj] then OriginalInteractData[obj]={Distance=obj.MaxActivationDistance} end
-        obj.MaxActivationDistance = Config.AuraRange and math.huge or OriginalInteractData[obj].Distance
+-- HipHeight System v2 - รองรับทุกพื้นที่และสิ่งกีดขวางด้วย Raycast
+local HipHeight_Platform = nil
+local HipHeight_Loop = nil
+local HipHeight_RayParams = nil
+local HipHeight_IgnoreList = {}
+
+local function ShouldIgnoreForRaycast(obj)
+    if not obj then return true end
+    if not obj:IsA("BasePart") then return true end
+    -- ข้าม fog, particles, effects
+    if obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam") then return true end
+    -- ข้าม objects ที่โปร่งใสและไม่มี collision
+    if obj.Transparency >= 0.95 and not obj.CanCollide then return true end
+    -- ข้าม objects ที่มี CanCollide = false และไม่ใช่พื้นหลัก
+    if not obj.CanCollide and obj.Name ~= "Terrain" then
+        -- ตรวจสอบชื่อที่มักเป็น effects
+        local name = obj.Name:lower()
+        if name:find("fog") or name:find("cloud") or name:find("mist") or name:find("smoke") or 
+           name:find("fire") or name:find("spark") or name:find("aura") or name:find("glow") then
+            return true
+        end
+    end
+    return false
+end
+
+local function InitHipHeightRayParams()
+    if HipHeight_RayParams then return end
+    HipHeight_RayParams = RaycastParams.new()
+    HipHeight_RayParams.FilterType = Enum.RaycastFilterType.Blacklist
+    HipHeight_RayParams.IgnoreWater = true
+end
+
+local function UpdateHipHeightIgnoreList()
+    HipHeight_IgnoreList = {}
+    -- เก็บ effects ต่างๆ ใน workspace
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if ShouldIgnoreForRaycast(obj) then
+            table.insert(HipHeight_IgnoreList, obj)
+        end
     end
 end
-local function UpdateInteractables()
-    for _,obj in ipairs(workspace:GetDescendants()) do pcall(ProcessInteractObj,obj) end
-end
-AddConn(workspace.DescendantAdded:Connect(function(obj) task.wait(0.1); pcall(ProcessInteractObj,obj) end))
 
-LocalPlayer.CharacterAdded:Connect(function() task.wait(0.7); FlyBG=nil; FlyBV=nil; if Config.GodMode then SetGodMode(true) end; if Config.WSToggle then SetWalkSpeed(true) end; if Config.JPToggle then SetJumpPower(true) end; if Config.Noclip then SetNoclip(true) end; if Config.InfJump then SetInfJump(true) end; if Config.FlyToggle then SetFly(true) end; if Config.InfZoom then SetInfZoom(true) end end)
-AddConn(RunService.RenderStepped:Connect(function() frameCount=frameCount+1 end))
-task.spawn(function() while State.Running do task.wait(1); lastFPS=frameCount; frameCount=0; pcall(function() pingValue=math.round(Stats.Network.ServerStatsItem["Data Ping"]:GetValue()) end) end end)
+local function GetGroundHeight(position)
+    InitHipHeightRayParams()
+    -- อัพเดต blacklist
+    local char = LocalPlayer.Character
+    local blacklist = {}
+    
+    -- เพิ่มตัวละครตัวเอง
+    if char then
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                table.insert(blacklist, part)
+            end
+        end
+    end
+    
+    -- เพิ่มแพลตฟอร์มตัวเอง
+    if HipHeight_Platform then
+        table.insert(blacklist, HipHeight_Platform)
+    end
+    
+    -- เพิ่ม effects ที่ต้องข้าม (อัพเดตทุก 2 วินาที)
+    if math.random(1, 60) == 1 then
+        UpdateHipHeightIgnoreList()
+    end
+    for _, obj in ipairs(HipHeight_IgnoreList) do
+        if obj and obj.Parent then
+            table.insert(blacklist, obj)
+        end
+    end
+    
+    HipHeight_RayParams.FilterDescendantsInstances = blacklist
+    HipHeight_RayParams.IgnoreWater = true
+    
+    -- Raycast หลายระดับเพื่อหาพื้นที่แข็งจริง
+    local checks = {
+        {startY = 500, dir = -1000},
+        {startY = 200, dir = -400},
+        {startY = 100, dir = -200},
+    }
+    
+    for _, check in ipairs(checks) do
+        local rayStart = Vector3.new(position.X, check.startY, position.Z)
+        local rayDirection = Vector3.new(0, check.dir, 0)
+        
+        local result = workspace:Raycast(rayStart, rayDirection, HipHeight_RayParams)
+        if result then
+            local hitPart = result.Instance
+            -- ตรวจสอบว่าเป็นพื้นที่แข็งจริง
+            if hitPart and hitPart.CanCollide and not ShouldIgnoreForRaycast(hitPart) then
+                return result.Position.Y, result.Position
+            end
+        end
+    end
+    
+    return nil, nil
+end
+
+local function SetHipHeight(on)
+    if HipHeight_Loop then HipHeight_Loop:Disconnect(); HipHeight_Loop = nil end
+    if HipHeight_Platform then pcall(function() HipHeight_Platform:Destroy() end); HipHeight_Platform = nil end
+    
+    if on then
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+        
+        -- หาความสูงพื้นปัจจุบัน
+        local groundY, _ = GetGroundHeight(hrp.Position)
+        if not groundY then groundY = hrp.Position.Y - 3 end
+        
+        -- สร้างพื้นล่องหน
+        HipHeight_Platform = Instance.new("Part")
+        HipHeight_Platform.Name = "HipHeightPlatform"
+        HipHeight_Platform.Size = Vector3.new(12, 1, 12)
+        HipHeight_Platform.Anchored = true
+        HipHeight_Platform.Transparency = 1
+        HipHeight_Platform.CanCollide = true
+        HipHeight_Platform.CanQuery = false
+        HipHeight_Platform.Parent = workspace
+        
+        -- คำนวณความสูงเป้าหมาย (พื้น + ค่าที่ผู้ใช้ตั้ง)
+        local targetY = groundY + (Config.HipHeightValue or 50)
+        HipHeight_Platform.CFrame = CFrame.new(hrp.Position.X, targetY, hrp.Position.Z)
+        
+        -- วาปผู้เล่นไปยังพื้น
+        task.wait(0.1)
+        hrp.CFrame = CFrame.new(hrp.Position.X, targetY + 3.5, hrp.Position.Z)
+        
+        -- อัพเดตตำแหน่งพื้นตาม terrain
+        local lastUpdate = 0
+        HipHeight_Loop = RunService.Heartbeat:Connect(function()
+            if not Config.HipHeightToggle then return end
+            lastUpdate = lastUpdate + 1
+            if lastUpdate < 3 then return end -- อัพเดตทุก 3 frames
+            lastUpdate = 0
+            
+            if HipHeight_Platform then
+                local currentChar = LocalPlayer.Character
+                local currentHrp = currentChar and currentChar:FindFirstChild("HumanoidRootPart")
+                if currentHrp then
+                    local newGroundY, _ = GetGroundHeight(currentHrp.Position)
+                    if newGroundY then
+                        local newTargetY = newGroundY + (Config.HipHeightValue or 50)
+                        -- Smooth transition ระหว่างความสูง
+                        local currentY = HipHeight_Platform.Position.Y
+                        local lerpY = currentY + (newTargetY - currentY) * 0.15
+                        HipHeight_Platform.CFrame = CFrame.new(currentHrp.Position.X, lerpY, currentHrp.Position.Z)
+                    end
+                end
+            end
+        end)
+    end
+end
+
+local function SetHipHeightValue(newValue)
+    local targetOffset = tonumber(newValue)
+    if not targetOffset then return end
+    
+    Config.HipHeightValue = targetOffset
+    
+    -- อัพเดตความสูงแพลตฟอร์มทันที
+    if Config.HipHeightToggle and HipHeight_Platform then
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            local groundY, _ = GetGroundHeight(hrp.Position)
+            if groundY then
+                local newTargetY = groundY + targetOffset
+                local tween = TweenService:Create(HipHeight_Platform, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                    CFrame = CFrame.new(HipHeight_Platform.Position.X, newTargetY, HipHeight_Platform.Position.Z)
+                })
+                tween:Play()
+                
+                -- ย้ายผู้เล่นตาม
+                task.delay(0.05, function()
+                    if hrp and hrp.Parent then
+                        hrp.AssemblyLinearVelocity = Vector3.new(hrp.AssemblyLinearVelocity.X * 0.3, 0, hrp.AssemblyLinearVelocity.Z * 0.3)
+                        hrp.CFrame = CFrame.new(hrp.Position.X, newTargetY + 3.5, hrp.Position.Z)
+                    end
+                end)
+            end
+        end
+    end
+end
+
+local function SetRemoveFog(on)
+    if on then
+        -- บันทึกค่าเดิมก่อนเปลี่ยน
+        if FogRemoval_Original.FogEnd == nil then
+            SaveOriginalFog()
+        end
+        
+        -- ยกเลิก connection เดิมถ้ามี
+        if FogRemoval_Conn then
+            FogRemoval_Conn:Disconnect()
+            FogRemoval_Conn = nil
+        end
+        
+        -- ลบหมอกทันที
+        pcall(function()
+            Lighting.FogEnd = 9e9
+            Lighting.FogStart = 9e9
+        end)
+        pcall(function()
+            local atmos = Lighting:FindFirstChildOfClass("Atmosphere")
+            if atmos then
+                atmos.Density = 0
+                atmos.Haze = 0
+                atmos.Glare = 0
+            end
+        end)
+        
+        -- สร้าง loop ต่อเนื่องเพื่อต่อต้าน local scripts ที่ reset หมอก
+        FogRemoval_Conn = RunService.Heartbeat:Connect(function()
+            if not Config.RemoveFog_Toggle then return end
+            pcall(function()
+                if Lighting.FogEnd < 100000 then
+                    Lighting.FogEnd = 9e9
+                    Lighting.FogStart = 9e9
+                end
+                local atmos = Lighting:FindFirstChildOfClass("Atmosphere")
+                if atmos and atmos.Density > 0.01 then
+                    atmos.Density = 0
+                    atmos.Haze = 0
+                    atmos.Glare = 0
+                end
+            end)
+        end)
+    else
+        -- ยกเลิก loop
+        if FogRemoval_Conn then
+            FogRemoval_Conn:Disconnect()
+            FogRemoval_Conn = nil
+        end
+        -- คืนค่าเดิม
+        pcall(function() 
+            Lighting.FogEnd = FogRemoval_Original.FogEnd or 1e6 
+            Lighting.FogStart = FogRemoval_Original.FogStart or 0
+        end)
+        pcall(function()
+            local atmos = Lighting:FindFirstChildOfClass("Atmosphere")
+            if atmos and FogRemoval_Original.AtmosphereDensity then
+                atmos.Density = FogRemoval_Original.AtmosphereDensity
+            end
+        end)
+        -- รีเซ็ตค่า saved
+        FogRemoval_Original = {FogEnd = nil, FogStart = nil, AtmosphereDensity = nil}
+    end
+end
+
+LocalPlayer.CharacterAdded:Connect(function() task.wait(0.7); FlyBG=nil; FlyBV=nil; if Config.WSToggle then SetWalkSpeed(true) end; if Config.JPToggle then SetJumpPower(true) end; if Config.Noclip then SetNoclip(true) end; if Config.InfJump then SetInfJump(true) end; if Config.FlyToggle then SetFly(true) end; if Config.InfZoom then SetInfZoom(true) end; if Config.HipHeightToggle then SetHipHeight(true) end; if Config.AntiStun then SetAntiStun(true) end end)
+AddConn(RunService.RenderStepped:Connect(function() Stats.frameCount = Stats.frameCount + 1 end))
+
+-- [ INITIALIZE CONFIG - Apply default enabled features ]
+task.spawn(function()
+    task.wait(0.5) -- wait for UI to build
+    -- Apply Max Zoom
+    if Config.InfZoom then SetInfZoom(true) end
+    -- Apply Fast Interact & Aura
+    if Config.InstantPress or Config.AuraRange then UpdateInteractables() end
+    -- Apply ESP if enabled
+    if Config.P_Master then
+        -- ESP จะทำงานอัตโนมัติผ่าน RenderStepped loop
+    end
+    -- Apply Show Stats HUD
+    if Config.ShowStatsToggle then
+        pcall(function() StatsHUD_Frame.Visible = true end)
+    end
+end)
+
+task.spawn(function() while State.Running do task.wait(1); Stats.lastFPS = Stats.frameCount; Stats.frameCount = 0; pcall(function() Stats.pingValue = math.round(game:GetService("Stats").Network.ServerStatsItem["Data Ping"]:GetValue()) end) end end)
 
 -- TAB 1: AIMLOCK
 local T1=BuildTab("Aimlock")
-T1:Section("AIMLOCK","ล็อกเป้าอัตโนมัติ")
-T1:Toggle("AIMLOCK","เปิดใช้งาน Aimlock","Aimlock",function(v) if not v then LockedTarget=nil; State.ToggleAiming=false end end)
+T1:Section("Aim Assist","ระบบช่วยเล็งอัตโนมัติ")
+T1:Toggle("Enable Aimlock","เปิดใช้งานระบบล็อกเป้า","Aimlock",function(v) if not v then LockedTarget=nil; State.ToggleAiming=false end end,nil,"Aimlock")
 
-T1:Dropdown("MODE","TOGGLE | HOLD | ALWAYS ON","AimMode",{"TOGGLE","HOLD","ALWAYS ON"})
+T1:Dropdown("Aim Mode","รูปแบบการใช้งาน: Toggle | Hold | Always","AimMode",{"TOGGLE","HOLD","ALWAYS ON"})
 
 local TargetModeNames = {"PLAYERS ONLY", "NPCs ONLY", "PLAYERS & NPCs"}
 local TargetCycleBtn
@@ -1306,97 +2206,107 @@ do
         task.delay(0.4,function() Tw(TargetCycleBtn,0.35,{BackgroundColor3=Colors.PrimaryBlue}) end)
     end)
 end
-T1:Toggle("ENEMY ONLY","ล็อกเฉพาะฝั่งตรงข้าม","EnemyOnly")
-T1:Bind("BIND","ปุ่มสำหรับ Aimlock","BindType","BindKey")
-T1:Slider("FOV SIZE","ขนาดวง FOV","FOV",1,200,"%",false)
-T1:Slider("SMOOTHNESS","น้อย = ช้า เยอะ = เร็ว","AimSmooth",0.01,1,"",true)
-T1:ColorPicker("FOV COLOR","สี FOV","FOVColor_C3")
-T1:Toggle("WALL CHECK","ตรวจกำแพง","WallCheck")
+T1:Toggle("Enemy Only","ล็อกเป้าเฉพาะศัตรู (ทีมตรงข้าม)","EnemyOnly",nil,nil,"EnemyOnly")
+T1:Bind("Aim Keybind","เลือกปุ่มที่ใช้สำหรับล็อกเป้า","BindType","BindKey")
+T1:Slider("FOV Radius","ปรับขนาดวงกลมขอบเขตการล็อก","FOV",1,200,"%",false)
+T1:Slider("Smoothing","ความเร็วในการลากเป้าไปยังศัตรู","AimSmooth",0.01,1,"",true)
+T1:ColorPicker("FOV Color","ปรับสีของวงกลมขอบเขตการล็อก","FOVColor_C3")
+T1:Toggle("Wall Check","ล็อกเป้าเฉพาะศัตรูที่มองเห็นเท่านั้น","WallCheck",nil,nil,"WallCheck")
+T1:Dropdown("Target Part","เลือกส่วนที่จะล็อก: หัว/ตัว/อัตโนมัติ","AimTargetPart",{"Head","Torso","HumanoidRootPart","Auto"})
 
-
-
--- TAB 2: ESP PLAYER
 local T2=BuildTab("ESP Player")
-T2:Section("ESP Player","ESP Player & NPCs")
-T2:Toggle("Enable Player ESP","เปิด ESP เฉพาะผู้เล่น","P_Master")
-T2:Toggle("ESP In FOV Only","แสดง ESP เฉพาะใน FOV","P_ESPInFOVOnly")
-T2:Toggle("Show Name","แสดงชื่อบนหัว","P_ShowName"); T2:Toggle("Show Health","แสดง HP %","P_ShowHealth")
-T2:Toggle("Show Distance","แสดงระยะห่าง","P_ShowDist"); T2:Toggle("Highlight","สีระบายตัวละคร","P_Highlight")
-T2:Toggle("Team Color","ใช้สีฝ่าย","P_TeamColor"); T2:Toggle("Team Check","ซ่อนทีมเดียวกัน","P_TeamCheck")
-T2:Toggle("Xray","มองทะลุ","P_Xray",function() UpdateXray(XrayCache_P,Config.P_Xray) end)
-T2:Section("Setting","ปรับค่า ESP สำหรับผู้เล่น")
-T2:ColorPicker("Player Color","สีของ ESP Player (เลือกเองได้)","P_Color_C3")
-T2:Slider("Text Size","ขนาดตัวอักษร","P_TextSize",8,30,"px",false)
-T2:Slider("Fill Trans","ความทึบ Fill","P_FillTrans",0,1,"",true)
-T2:Slider("Outline Trans","ความทึบ Outline","P_OutlineTrans",0,1,"",true)
-T2:Section("Hitbox","ขยาย HitBox")
-T2:Toggle("Enable Hitbox","เปิด Hitbox Expander","P_HitboxToggle",function(v) if not v then for char,sz in pairs(HitboxOriginalSizes) do pcall(function() local hrp=char:FindFirstChild("HumanoidRootPart"); if hrp then hrp.Size=sz; hrp.Transparency=1; hrp.Material=Enum.Material.SmoothPlastic; hrp.CanCollide=true end end) end; HitboxOriginalSizes={} end end)
-T2:Dropdown("Hitbox Targets","เลือกเป้าหมายที่จะขยาย","HitboxTargetMode",{"PLAYERS ONLY", "NPCs ONLY", "PLAYERS & NPCs"})
-T2:Slider("Hitbox Size","ขนาด Hitbox (studs)","P_HitboxSize",4,200,"",false)
+T2:Section("ESP Visuals","ระบบแสดงตำแหน่งผู้เล่นและ NPC")
+T2:Toggle("Enable Visuals","เปิดใช้งานการแสดงตำแหน่งทั้งหมด","P_Master",nil,nil,"P_Master")
+T2:Toggle("View Distance Only","แสดงผลระยะไกลตามแนวสายตา","P_ESPInFOVOnly",nil,nil,"P_ESPInFOVOnly")
+T2:Toggle("Show Names","แสดงชื่อเหนือศีรษะตัวละคร","P_ShowName",nil,nil,"P_ShowName"); T2:Toggle("Show Health","แสดงสถานะพลังชีวิตแบบเปอร์เซ็นต์","P_ShowHealth",nil,nil,"P_ShowHealth")
+T2:Toggle("Show Distance","แสดงระยะห่างจากตำแหน่งปัจจุบัน","P_ShowDist",nil,nil,"P_ShowDist"); T2:Toggle("Highlight Glow","ระบายสีตัวละครเพื่อเน้นตำแหน่ง","P_Highlight",nil,nil,"P_Highlight")
+T2:Toggle("Team Color","ใช้สีตามทีมที่ผู้เล่นสังกัด","P_TeamColor",nil,nil,"P_TeamColor"); T2:Toggle("Ignore Team","ซ่อนเพื่อนร่วมทีมจากการแสดงผล","P_TeamCheck",nil,nil,"P_TeamCheck")
+T2:Toggle("X-Ray Mode","โหมดมองทะลุสิ่งกีดขวางและกำแพง","P_Xray",function() UpdateXray(XrayCache_P,Config.P_Xray) end,nil,"P_Xray")
+T2:Section("Customization","ปรับแต่งรูปแบบการแสดงผล")
+T2:ColorPicker("Primary Color","เลือกสีหลักสำหรับ ESP Player","P_Color_C3")
+T2:Slider("Text Size","ปรับขนาดตัวอักษรของข้อมูล","P_TextSize",8,30,"px",false)
+T2:Slider("Fill Opacity","ระดับความทึบของสีในตัวละคร","P_FillTrans",0,1,"",true)
+T2:Slider("Outline Opacity","ระดับความทึบของเส้นขอบ","P_OutlineTrans",0,1,"",true)
+T2:Section("Hitbox Expansion","ระบบขยายขอบเขตการรับความเสียหาย")
+T2:Toggle("Enable Hitbox","เปิดใช้งานการขยาย Hitbox ตัวละคร","P_HitboxToggle",function(v) if not v then for char,sz in pairs(HitboxOriginalSizes) do pcall(function() local hrp=char:FindFirstChild("HumanoidRootPart"); if hrp then hrp.Size=sz; hrp.Transparency=1; hrp.Material=Enum.Material.SmoothPlastic; hrp.CanCollide=true end end) end; HitboxOriginalSizes={} end end,nil,"P_HitboxToggle")
+T2:Dropdown("Target Selection","เลือกกลุ่มเป้าหมายที่ต้องการขยาย","HitboxTargetMode",{"PLAYERS ONLY", "NPCs ONLY", "PLAYERS & NPCs"})
+T2:Slider("Expansion Size","เลือกขนาดความกว้าง (หน่วย studs)","P_HitboxSize",4,200,"",false)
 
 -- TAB 3: SETTING PLAYER
 local T3=BuildTab("Setting Player")
-T3:Section("Appearance","ธีมและรูปลักษณ์ของเมนู")
-T3:Dropdown("GUI Theme","เลือกธีม — เปลี่ยนทันที","Theme",{"Dark","Midnight","Neon","Rose","Gold","Purple"},false,function(v) ApplyTheme(v) end)
-T3:Section("Movement","ปรับการเคลื่อนที่")
-T3:Toggle("Walk Speed","เปิดความเร็วเดิน","WSToggle",function(v) SetWalkSpeed(v) end)
-T3:Slider("Walk Speed","ค่าความเร็ว","WalkSpeed",16,1000,"",false,function() if Config.WSToggle then SetWalkSpeed(true) end end)
-T3:Toggle("Jump Power","เปิดพลังกระโดด","JPToggle",function(v) SetJumpPower(v) end)
-T3:Slider("Jump Power","ค่าพลังกระโดด","JumpPower",10,1000,"",false,function() if Config.JPToggle then SetJumpPower(true) end end)
-T3:Toggle("Infinity Jump","กระโดดได้ไม่จำกัด","InfJump",function(v) SetInfJump(v) end)
-T3:Toggle("Fly","Space=ขึ้น Shift=ลง WASD=ทิศทาง","FlyToggle",function(v) SetFly(v) end)
-T3:Slider("Fly Speed","ความเร็วบิน","FlySpeed",5,500,"",false)
-T3:Toggle("No Clip","เดินทะลุกำแพง","Noclip",function(v) SetNoclip(v) end)
-    T3:Toggle("Invisibility","ล่องหน (ใช้ได้บางแมพ)","InvisToggle",function(v) SetInvisibility(v) end)
-T3:Toggle("Infinite Zoom","ซูมได้ไม่จำกัด","InfZoom",function(v) SetInfZoom(v) end)
-T3:Section("Camera","ปรับมุมมองกล้อง")
-T3:Toggle("Custom FOV","ปรับ FieldOfView","FOVToggle",function(v)
+
+T3:Section("Animations","ระบบแสดงท่าทาง (Emotes)")
+T3:RunButton("Open Emote Menu", "เรียกใช้งานเมนูท่าเต้นที่ซ่อนอยู่", "ICON_CLICK", Colors.PrimaryBlue, function()
+    pcall(function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/7yd7/Hub/refs/heads/Branch/GUIS/Emotes.lua"))()
+    end)
+end)
+
+T3:Section("Appearance","การปรับแต่งธีมและรูปลักษณ์")
+T3:Dropdown("UI Theme","เลือกโทนสีของเมนู (มีผลทันที)","Theme",{"Dark","Midnight","Neon","Rose","Gold","Purple"},false,function(v) ApplyTheme(v) end)
+T3:Section("Movement","ระบบควบคุมการเคลื่อนที่")
+T3:Toggle("Super Walk","เปิดใช้งานการเพิ่มความเร็วในการววิ่ง","WSToggle",function(v) SetWalkSpeed(v) end,nil,"WSToggle")
+T3:Slider("Speed Value","กำหนดระดับความเร็วที่ต้องการ","WalkSpeed",16,1000,"",false,function() if Config.WSToggle then SetWalkSpeed(true) end end)
+T3:Toggle("Super Jump","เปิดใช้งานการปรับระดับการกระโดด","JPToggle",function(v) SetJumpPower(v) end,nil,"JPToggle")
+T3:Slider("Jump Value","กำหนดระดับพลังกระโดดที่ต้องการ","JumpPower",10,1000,"",false,function() if Config.JPToggle then SetJumpPower(true) end end)
+T3:Toggle("Infinite Jump","สามารถกระโดดบนอากาศได้ต่อเนื่อง","InfJump",function(v) SetInfJump(v) end,nil,"InfJump")
+T3:Toggle("Fly Mode","Space=ขึ้น | Shift=ลง | WASD=ทิศทาง","FlyToggle",function(v) SetFly(v) end,nil,"FlyToggle")
+T3:Slider("Flying Speed","กำหนดความเร็วในการบิน","FlySpeed",5,500,"",false)
+T3:Toggle("No Clip","เดินทะลุกำแพงและสิ่งกีดขวางได้","Noclip",function(v) SetNoclip(v) end,nil,"Noclip")
+T3:Toggle("Invisibility","โหมดล่องหน (ใช้ได้เฉพาะบางแมพ)","InvisToggle",function(v) SetInvisibility(v) end,nil,"InvisToggle")
+T3:Toggle("Max Zoom","ระยะการซูมกล้องแบบไร้ขีดจำกัด","InfZoom",function(v) SetInfZoom(v) end,nil,"InfZoom")
+T3:Toggle("Hip Height","สร้างพื้นล่องหนลอยตัวที่ความสูงที่กำหนด","HipHeightToggle",function(v) SetHipHeight(v) end,nil,"HipHeightToggle")
+T3:Slider("Height Level","กำหนดระดับความสูงที่ต้องการลอย ( studs )","HipHeightValue",-100,1000,"",false,function(v) SetHipHeightValue(v) end)
+T3:Section("Visual Environment","ระบบปรับแต่งสภาพแวดล้อม")
+T3:Toggle("Custom Field of View","เปิดใช้งานการปรับมุมมองสายตา","FOVToggle",function(v)
     if v then pcall(function() workspace.CurrentCamera.FieldOfView=Config.FOVView end)
     else pcall(function() workspace.CurrentCamera.FieldOfView=70 end) end
-end)
-T3:Slider("FOV Angle","มุมกล้อง (70 = ปกติ)","FOVView",30,360,"°",false,function(v)
+end,nil,"FOVToggle")
+T3:Slider("FOV Value","เลือกองศามุมกล้อง (70 คือปกติ)","FOVView",30,360,"°",false,function(v)
     if Config.FOVToggle then pcall(function() workspace.CurrentCamera.FieldOfView=v end) end
 end)
-T3:Section("Lighting","ปรับแสงสว่าง")
-T3:Toggle("Fullbright","แมพสว่าง","Fullbright_Toggle")
-T3:Toggle("Remove Fog","ลบหมอก","RemoveFog_Toggle")
-T3:Section("Facilities","สิ่งอำนวยความสะดวก")
-T3:Toggle("Instant Press","กด E ไม่ต้องรอหลอดเต็ม","InstantPress",function() UpdateInteractables() end)
-T3:Toggle("Aura Range","เพิ่มระยะกดให้ไกลขึ้น","AuraRange",function() UpdateInteractables() end)
-T3:Toggle("God Mode","อมตะ (ใช้ได้บางแมพ)","GodMode",function(v) SetGodMode(v) end)
-T3:Toggle("Anti-AFK","ป้องกัน AFK","AntiAFK",function(v) SetAntiAFK(v) end)
-T3:Section("Performance","เพิ่ม FPS")
-T3:Toggle("Booster FPS","เปิด FPS Booster","FPSBooster",function(v) if v then ApplyFPSBoost() else DisableFPSBoost() end end)
-T3:Toggle("No Shadows","ปิดเงา","FPS_NoShadows"); T3:Toggle("No Particles","ปิด Particle / Fire / Smoke","FPS_NoParticles")
-T3:Toggle("No Clothes","ปิดเสื้อผ้าตัวละคร","FPS_NoClothes"); T3:Toggle("Low Quality","ลด Material Quality","FPS_LowQuality")
-T3:Section("Stats HUD","แสดง FPS / Ping บนจอ")
-T3:Dropdown("Show Stats","เลือกข้อมูลที่จะแสดง","ShowFPSPing",{"FPS","Ping","FPS & Ping"})
-T3:Toggle("Enable Stats HUD","แสดง HUD","ShowStatsToggle",function(v) StatHUD.Visible=v end)
-T3:Dropdown("HUD Position","ตำแหน่ง HUD","HUDPosition",{"TopLeft","TopRight","BottomLeft","BottomRight"},false,function() UpdateHUDPos() end)
-T3:Section("Settings","บันทึก / โหลดการตั้งค่า")
-T3:Button("💾  Save Settings",Colors.PrimaryBlue,SaveSettings)
-T3:Button("📂  Load Settings",Color3.fromRGB(52,52,72),LoadSettings)
+T3:Section("Lighting","ระบบความสว่างและแสงเงา")
+T3:Toggle("Fullbright","เพิ่มความสว่างสูงสุดทั่วทั้งแผนที่","Fullbright_Toggle",nil,nil,"Fullbright_Toggle")
+T3:Toggle("Disable Fog","ลบหมอกควันเพื่อเพิ่มทัศนวิสัย","RemoveFog_Toggle",function(v) SetRemoveFog(v) end,nil,"RemoveFog_Toggle")
+T3:Section("Interactions","สิ่งอำนวยความสะดวกในการเล่น")
+T3:Toggle("Fast Interact","โต้ตอบกับวัตถุได้ทันทีไม่ต้องรอ","InstantPress",function() UpdateInteractables() end,nil,"InstantPress")
+T3:Toggle("Interaction Aura","เพิ่มระยะการโต้ตอบกับวัตถุให้ไกลขึ้น","AuraRange",function() UpdateInteractables() end,nil,"AuraRange")
+
+T3:Toggle("Anti-AFK","ระบบป้องกันการถูกเตะเมื่อไม่ได้ขยับตัว","AntiAFK",function(v) SetAntiAFK(v) end,nil,"AntiAFK")
+T3:Toggle("Anti Stun","ป้องกันการล้มและป้องกันสตั้น","AntiStun",function(v) SetAntiStun(v) end,nil,"AntiStun")
+T3:Section("Optimization","ระบบเพิ่มประสิทธิภาพเฟรมเรต")
+T3:Toggle("Enable FPS Booster","เปิดใช้งานโหมดเพิ่มความลื่นไหล","FPSBooster",function(v) if v then ApplyFPSBoost() else DisableFPSBoost() end end,nil,"FPSBooster")
+T3:Toggle("Disable Shadows","ปิดการแสดงผลเงาในแผนที่","FPS_NoShadows",nil,nil,"FPS_NoShadows"); T3:Toggle("Clear Particles","ปิดการแสดงผลเอฟเฟกต์ควันและไฟ","FPS_NoParticles",nil,nil,"FPS_NoParticles")
+T3:Toggle("Strip Outfits","ปิดการแสดงผลเสื้อผ้าของตัวละคร","FPS_NoClothes",nil,nil,"FPS_NoClothes"); T3:Toggle("Low Mesh Quality","ลดคุณภาพวัตถุเพื่อเพิ่มความลื่นไหล","FPS_LowQuality",nil,nil,"FPS_LowQuality")
+T3:Section("Interface Info","ระบบแสดงข้อมูลสถานะบนหน้าจอ")
+T3:Dropdown("Data Display","เลือกข้อมูลที่ต้องการติดตาม","ShowFPSPing",{"FPS","Ping","FPS & Ping"})
+T3:Toggle("Show Activity HUD","แสดงแถบข้อมูลสถานะบนหน้าจอ","ShowStatsToggle",function(v) StatHUD.Visible=v end,nil,"ShowStatsToggle")
+T3:Dropdown("HUD Position","เลือกตำแหน่งการวางแถบข้อมูล","HUDPosition",{"TopLeft","TopRight","BottomLeft","BottomRight"},false,function() UpdateHUDPos() end)
+T3:Section("Save/Load Configuration","ระบบจัดการการตั้งค่า")
+T3:Button(" Save My Settings",Colors.PrimaryBlue,SaveSettings)
+T3:Button(" Load Settings",Color3.fromRGB(52,52,72),LoadSettings)
+
 
 -- TAB 4: TELEPORT
 local T4=BuildTab("Player Teleport")
-T4:Section("Teleport Player","วาปหรือบินตามผู้เล่น")
-T4:Dropdown("Name Player","เลือกผู้เล่น (ค้นหาได้)","TPTarget",{"-"},true)
-T4:Dropdown("TP Mode","Safe Fly = บิน  |  Warp = วาป","TPMode",{"Safe Fly","Warp"})
-T4:Slider("Fly Speed","ความเร็ว Safe Fly","TPFlightSens",10,500,"",false)
-T4:Toggle("Activate TP","START = เริ่ม  ·  STOP = หยุด","TPGOSwitch",function(v)
+T4:Section("Target Tracking","ระบบวาร์ปและติดตามผู้เล่น")
+T4:Dropdown("Target Player","ระบุชื่อผู้เล่นที่ต้องการ (ค้นหาได้)","TPTarget",{"-"},true)
+T4:Dropdown("Tracking Mode","Safe Fly = บินตาม | Warp = วาร์ปหา","TPMode",{"Safe Fly","Warp"})
+T4:Slider("Follow Speed","ความเร็วในการบินติดตามเป้าหมาย","TPFlightSens",10,500,"",false)
+T4:Toggle("Activate System","START = เริ่มทำงาน | STOP = หยุด","TPGOSwitch",function(v)
     if v and Config.TPTarget~="-" then local tp=Players:FindFirstChild(Config.TPTarget)
         if tp then if Config.TPMode=="Safe Fly" then StartSafeTP(tp) else local tHRP=tp.Character and tp.Character:FindFirstChild("HumanoidRootPart"); if tHRP and LocalPlayer.Character then pcall(function() LocalPlayer.Character:PivotTo(tHRP.CFrame*CFrame.new(0,0,3)) end) end end end
     else StopSafeTP() end
-end,{"STOP","GO"})
-T4:Section("Spectate","ดูมุมกล้องผู้เล่นอื่น")
-T4:Dropdown("Spectate Player","เลือกผู้เล่น","SpecTarget",{"-"},true)
-T4:Toggle("Enable Spectate","เปิดดูจอผู้เล่น","SpecToggle",function(v) if not v then local h=LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid"); if h then Camera.CameraSubject=h end end end)
-T4:Section("Click Teleport","กดปุ่มที่กำหนด + คลิกซ้าย")
-T4:Bind("Click TP Key","กดปุ่มนี้ค้างไว้ขณะคลิก","ClickTPBindType","ClickTPBindKey")
-T4:Toggle("Enable Click TP","เปิด Click Teleport","ClickTPToggle")
+end,nil,"TPGOSwitch")
+T4:Section("Spectator Mode","ระบบรับชมกล้องของผู้เล่นอื่น")
+T4:Dropdown("Watch Player","เลือกผู้เล่นที่ต้องการรับชม","SpecTarget",{"-"},true)
+T4:Toggle("Enable Eye","เปิดใช้งานการรับชมจอผู้เล่นแบบสด","SpecToggle",function(v) if not v then local h=LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid"); if h then Camera.CameraSubject=h end end end,nil,"SpecToggle")
+T4:Section("Mouse Teleportation","จัดการตำแหน่งด้วยเมาส์และคีย์")
+T4:Bind("Teleport Key","กดปุ่มนี้ค้างไว้แล้วคลิกเมาส์ซ้ายเพื่อวาร์ป","ClickTPBindType","ClickTPBindKey")
+T4:Toggle("Enable Click-TP","เปิดใช้งานระบบวาร์ปตามตำแหน่งคลิก","ClickTPToggle",nil,nil,"ClickTPToggle")
 
--- TAB 5: SERVER
-local T5=BuildTab("Server")
+-- TAB 5: SERVER INFO
+local T5=BuildTab("Server Details")
 
 local nameBtn = T5:Button("🎮 Name: Loading...", Colors.PrimaryBlue, function()
     -- Copy everything after "🎮 Name: "
@@ -1451,9 +2361,112 @@ T5:Button("🚪 Server Hop", Colors.Green, function()
     ts:Teleport(game.PlaceId, LocalPlayer)
 end)
 
+-- [ KEYBINDS INPUT HANDLER ]
+-- Update toggle UI when keybind toggles a feature
+local function UpdateToggleUIFromKeybind(featureKey)
+    if not State.ToggleUIRefs then return end
+    local refs = State.ToggleUIRefs[featureKey]
+    if not refs then return end
+    
+    local on = Config[featureKey]
+    local Stat, Track, Circ, CG, TS = refs.Stat, refs.Track, refs.Circ, refs.CG, refs.TS
+    local customText = refs.customText
+    
+    -- Update text
+    Stat.Text = on and (customText and customText[1] or "On") or (customText and customText[2] or "Off")
+    Tw(Stat, 0.2, {TextColor3 = on and Colors.Green or Color3.fromRGB(120,120,140)})
+    
+    -- Update track colors
+    Tw(Track, 0.25, {BackgroundColor3 = on and Colors.PrimaryBlue or Colors.Toggle_Off})
+    Tw(TS, 0.25, {Color = on and Colors.AccentGlow or Color3.fromRGB(70,70,90), Thickness = 0.8})
+    
+    -- Animate circle
+    Tw(Circ, 0.15, {Size = UDim2.new(0,26,0,20)})
+    task.delay(0.12, function()
+        TwSpring(Circ, 0.35, {Size = UDim2.new(0,20,0,20), Position = on and UDim2.new(1,-23,0.5,-10) or UDim2.new(0,3,0.5,-10)})
+    end)
+    
+    -- Update glow
+    Tw(CG, 0.25, {BackgroundTransparency = on and 0.2 or 1})
+    
+    -- Call onChange callback if exists
+    if refs.onChange then refs.onChange(on) end
+end
+
+local function ProcessKeybinds(input)
+    for featureKey, kb in pairs(Config.Keybinds) do
+        if kb.Enabled and kb.Key then
+            local matched = false
+            if kb.Type == "Keyboard" and input.UserInputType == Enum.UserInputType.Keyboard then
+                matched = (input.KeyCode == kb.Key)
+            elseif kb.Type == "Mouse" then
+                local mb = (kb.Key == 1) and Enum.UserInputType.MouseButton1 or Enum.UserInputType.MouseButton2
+                matched = (input.UserInputType == mb)
+            end
+            if matched then
+                local currentValue = Config[featureKey]
+                if currentValue ~= nil and type(currentValue) == "boolean" then
+                    Config[featureKey] = not currentValue
+                    local newValue = Config[featureKey]
+                    local featureNames = {
+                        Aimlock = "Aimlock", P_Master = "ESP Master", P_HitboxToggle = "Hitbox Expand",
+                        WSToggle = "Super Speed", JPToggle = "Super Jump", FlyToggle = "Fly Mode",
+                        Noclip = "No Clip", InfJump = "Infinite Jump", InvisToggle = "Invisibility",
+                        InfZoom = "Max Zoom", FOVToggle = "Custom FOV", Fullbright_Toggle = "Fullbright",
+                        RemoveFog_Toggle = "Remove Fog", AntiAFK = "Anti-AFK", AntiStun = "Anti Stun", FPSBooster = "FPS Booster",
+                        TPGOSwitch = "Teleport Target", ClickTPToggle = "Click TP",
+                        FPS_NoShadows = "FPS No Shadows", FPS_NoParticles = "FPS No Particles",
+                        FPS_NoClothes = "FPS No Clothes", FPS_LowQuality = "FPS Low Quality",
+                        ShowStatsToggle = "Show Stats HUD", InstantPress = "Fast Interact",
+                        AuraRange = "Interaction Aura", P_ESPInFOVOnly = "ESP FOV Only",
+                        P_ShowName = "ESP Show Names", P_ShowHealth = "ESP Show Health",
+                        P_ShowDist = "ESP Show Distance", P_Highlight = "ESP Highlight",
+                        P_TeamColor = "ESP Team Color", P_TeamCheck = "ESP Ignore Team",
+                        P_Xray = "ESP X-Ray", SpecToggle = "Spectator Mode",
+                        EnemyOnly = "Enemy Only", WallCheck = "Wall Check",
+                        HipHeightToggle = "Hip Height Float"
+                    }
+                    local name = featureNames[featureKey] or featureKey
+                    local emoji = newValue and "✅" or "❌"
+                    local action = newValue and "เปิด" or "ปิด"
+                    ShowToast(emoji .. " " .. action .. " : " .. name, newValue and Colors.Green or Colors.Red)
+                    
+                    -- Update UI toggle to match new state
+                    UpdateToggleUIFromKeybind(featureKey)
+                    
+                    if featureKey == "WSToggle" then SetWalkSpeed(newValue) end
+                    if featureKey == "JPToggle" then SetJumpPower(newValue) end
+                    if featureKey == "FlyToggle" then SetFly(newValue) end
+                    if featureKey == "Noclip" then SetNoclip(newValue) end
+                    if featureKey == "InfJump" then SetInfJump(newValue) end
+                    if featureKey == "InvisToggle" then SetInvisibility(newValue) end
+                    if featureKey == "InfZoom" then SetInfZoom(newValue) end
+                    if featureKey == "AntiAFK" then SetAntiAFK(newValue) end
+                    if featureKey == "AntiStun" then SetAntiStun(newValue) end
+                    if featureKey == "FPSBooster" then if newValue then ApplyFPSBoost() else DisableFPSBoost() end end
+                    if featureKey == "TPGOSwitch" then 
+                        if newValue and Config.TPTarget~="-" then 
+                            local tp=Players:FindFirstChild(Config.TPTarget)
+                            if tp then if Config.TPMode=="Safe Fly" then StartSafeTP(tp) else local tHRP=tp.Character and tp.Character:FindFirstChild("HumanoidRootPart"); if tHRP and LocalPlayer.Character then pcall(function() LocalPlayer.Character:PivotTo(tHRP.CFrame*CFrame.new(0,0,3)) end) end end end
+                        else StopSafeTP() end
+                    end
+                    if featureKey == "Aimlock" then if not newValue then LockedTarget=nil; State.ToggleAiming=false end end
+                    if featureKey == "HipHeightToggle" then SetHipHeight(newValue) end
+                    if featureKey == "RemoveFog_Toggle" then SetRemoveFog(newValue) end
+                    return true
+                end
+            end
+        end
+    end
+    return false
+end
+
 -- [ INPUT HANDLERS ]
 AddConn(UIS.InputBegan:Connect(function(input,gp)
     if gp or State.Binding then return end
+    -- Process custom keybinds first
+    if ProcessKeybinds(input) then return end
+    -- Menu toggle
     if Config.MenuToggleBindType=="Keyboard" and Config.MenuToggleBindKey then
         if input.UserInputType==Enum.UserInputType.Keyboard and input.KeyCode==Config.MenuToggleBindKey then Config.MenuVisible=not Config.MenuVisible; MainFrame.Visible=Config.MenuVisible; return end
     elseif Config.MenuToggleBindType=="Mouse" and Config.MenuToggleBindKey then
@@ -1467,8 +2480,13 @@ AddConn(UIS.InputBegan:Connect(function(input,gp)
         if hit then State.ToggleAiming=not State.ToggleAiming; if not State.ToggleAiming then LockedTarget=nil end end
     end
     if Config.ClickTPToggle and input.UserInputType==Enum.UserInputType.MouseButton1 and Config.ClickTPBindType=="Keyboard" and Config.ClickTPBindKey then
-        if UIS:IsKeyDown(Config.ClickTPBindKey) then local lpc=LocalPlayer.Character; if lpc and Mouse.Hit then pcall(function() lpc:PivotTo(Mouse.Hit*CFrame.new(0,3,0)) end) end
-    end end
+        if UIS:IsKeyDown(Config.ClickTPBindKey) then
+            local lpc=LocalPlayer.Character
+            if lpc and Mouse.Hit then
+                pcall(function() lpc:PivotTo(Mouse.Hit*CFrame.new(0,3,0)) end)
+            end
+        end
+    end
 end))
 
 local function IsAimKeyHeld()
@@ -1481,9 +2499,9 @@ AddConn(RunService.RenderStepped:Connect(function()
     if not State.Running then return end
     Camera = workspace.CurrentCamera
     if Config.ShowStatsToggle then StatHUD.Visible=true
-        if Config.ShowFPSPing=="FPS" then StatHUD.Text="FPS: "..lastFPS
-        elseif Config.ShowFPSPing=="Ping" then StatHUD.Text="Ping: "..pingValue.."ms"
-        else StatHUD.Text="FPS: "..lastFPS.." | "..pingValue.."ms" end
+        if Config.ShowFPSPing=="FPS" then StatHUD.Text="FPS: "..Stats.lastFPS
+        elseif Config.ShowFPSPing=="Ping" then StatHUD.Text="Ping: "..Stats.pingValue.."ms"
+        else StatHUD.Text="FPS: "..Stats.lastFPS.." | "..Stats.pingValue.."ms" end
     else StatHUD.Visible=false end
 
     local LPChar=LocalPlayer.Character; local LPHum=LPChar and LPChar:FindFirstChildOfClass("Humanoid"); local LPHRP=LPChar and LPChar:FindFirstChild("HumanoidRootPart")
@@ -1495,9 +2513,17 @@ AddConn(RunService.RenderStepped:Connect(function()
         pcall(function() Lighting.FogEnd = 9e9 end)
     end
 
-    -- Custom FOV: force every frame when enabled
+    -- Custom FOV: force every frame when enabled (Simulated Ultra-Wide for 120-360 range)
     if Config.FOVToggle then
-        pcall(function() Camera.FieldOfView = Config.FOVView end)
+        pcall(function()
+            local baseFOV = math.clamp(Config.FOVView, 30, 120)
+            Camera.FieldOfView = baseFOV
+            if Config.FOVView > 120 then
+                local extra = Config.FOVView - 120
+                -- Algorithm: Offset CFrame backward to simulate fish-eye/wide-angle effects beyond engine limits
+                Camera.CFrame = Camera.CFrame * CFrame.new(0, 0, extra * 0.1) 
+            end
+        end)
     end
 
     -- Fly
@@ -1516,7 +2542,7 @@ AddConn(RunService.RenderStepped:Connect(function()
 
     -- Warp TP
     if Config.TPGOSwitch and Config.TPTarget~="-" and Config.TPMode=="Warp" and LPChar then
-        local now=tick(); if now-lastWarpTick>=0.5 then lastWarpTick=now; local tp=Players:FindFirstChild(Config.TPTarget); if tp and tp.Character then local tHRP=tp.Character:FindFirstChild("HumanoidRootPart"); if tHRP then pcall(function() LPChar:PivotTo(tHRP.CFrame*CFrame.new(0,0,3)) end) end end end
+        local now=tick(); if now-Stats.lastWarpTick>=0.5 then Stats.lastWarpTick=now; local tp=Players:FindFirstChild(Config.TPTarget); if tp and tp.Character then local tHRP=tp.Character:FindFirstChild("HumanoidRootPart"); if tHRP then pcall(function() LPChar:PivotTo(tHRP.CFrame*CFrame.new(0,0,3)) end) end end end
     end
 
     -- Hitbox
@@ -1584,15 +2610,30 @@ AddConn(RunService.RenderStepped:Connect(function()
 
     -- ── ESP + Aimlock using ValidTargets (same as AIMLOCK.lua pattern) ──
     for char, nameStr in pairs(ValidTargets) do
-        local head=char:FindFirstChild("Head")
-        local hrp=char:FindFirstChild("HumanoidRootPart")
-        local hum=char:FindFirstChildOfClass("Humanoid")
-        if not(head and hrp and hum and hum.Health>0 and char.Parent) then
+        local head, hrp, hum = GetCharacterParts(char)
+        
+        -- ตรวจสอบความถูกต้อง - ยืดหยุ่นกว่าเดิม
+        if not char.Parent then
             local e=ESP_Cache[char]; if e then e.Gui.Enabled=false; e.Highlight.Enabled=false end
             continue
         end
+        
+        -- ถ้าไม่มี Humanoid หรือไม่มีส่วนหลัก ให้ข้าม
+        if not (hum and hum.Health > 0) then
+            local e=ESP_Cache[char]; if e then e.Gui.Enabled=false; e.Highlight.Enabled=false end
+            continue
+        end
+        
+        -- ต้องมีอย่างน้อย HRP หรือ Head
+        if not (hrp or head) then
+            local e=ESP_Cache[char]; if e then e.Gui.Enabled=false; e.Highlight.Enabled=false end
+            continue
+        end
+        
+        -- ใช้ตำแหน่งจาก HRP หรือ Head หรือส่วนแรกที่เจอ
+        local refPart = hrp or head
         local esp=GetESP(char)
-        local rPos,rVis=Camera:WorldToViewportPoint(hrp.Position)
+        local rPos,rVis=Camera:WorldToViewportPoint(refPart.Position)
         local scr2D=Vector2.new(rPos.X,rPos.Y)
         local inFOV=rVis and (scr2D-center).Magnitude<=Circle.Radius
         local hpPct=math.floor((hum.Health/math.max(hum.MaxHealth,1))*100)
@@ -1621,7 +2662,9 @@ AddConn(RunService.RenderStepped:Connect(function()
             else
                 col=Color3.new(1,1,1)
             end
-            esp.Gui.Adornee=head; esp.Gui.Enabled=true
+            -- ใช้ head หรือ hrp หรือส่วนแรกที่เจอเป็น Adornee
+            local espAdornee = head or hrp or char:FindFirstChildWhichIsA("BasePart")
+            esp.Gui.Adornee=espAdornee; esp.Gui.Enabled=true
             local info={}
             if Config.P_ShowName then table.insert(info, ownerPlayer.DisplayName or ownerPlayer.Name) end
             if Config.P_ShowHealth then table.insert(info,"HP: "..hpPct.."%") end
@@ -1634,8 +2677,13 @@ AddConn(RunService.RenderStepped:Connect(function()
             esp.Gui.Enabled=false; esp.Highlight.Enabled=false
         end
 
-        -- ── Aimlock Candidate: combined screen + world distance score ──
-        if isAimingNow and not LockedTarget and inFOV and rVis and rPos.Z>0 then
+        -- ── Aimlock Candidate: Smart Selection ──
+        -- ใช้ GetTargetPart เพื่อเลือกส่วนที่จะล็อกตามการตั้งค่า
+        local targetPart = GetTargetPart(char)
+        
+        -- คำนวณคะแนนรวม: ใกล้ FOV + ใกล้ตัวละคร (50/50)
+        -- ถ้าไม่มี LPHRP2 ใช้ Camera position แทน
+        if isAimingNow and not LockedTarget and inFOV and rVis and rPos.Z>0 and targetPart then
             local isEnemy=true
             if isPlayer and Config.EnemyOnly then
                 if ownerPlayer.Team ~= nil and LocalPlayer.Team ~= nil then
@@ -1644,32 +2692,57 @@ AddConn(RunService.RenderStepped:Connect(function()
                     isEnemy=true
                 end
             end
-            if isEnemy and IsVisible(head) then
+            -- Wall check เฉพาะตอนเลือกเป้าหมายใหม่ (ไม่ใช่ตอนล็อกอยู่)
+            if isEnemy and IsVisible(targetPart) then
                 local scrDist=(scr2D-center).Magnitude                    -- px distance to FOV center
-                local wldDist=LPHRP2 and (hrp.Position-LPHRP2.Position).Magnitude or 0  -- 3D world studs
-                -- Normalize: scrDist already in px (0..Circle.Radius), wldDist in studs (0..2000)
-                local normScr=scrDist/(Circle.Radius+0.001)
-                local normWld=wldDist/2000
-                -- Combined score: screen dist weighted 70%, world dist 30%
-                local score=normScr*0.7 + normWld*0.3
-                if score<bestScore then bestHead=head; bestScore=score end
+                local playerPos = LPHRP2 and LPHRP2.Position or Camera.CFrame.Position
+                local wldDist=(refPart.Position-playerPos).Magnitude      -- 3D world studs
+                
+                -- Normalize distances
+                local normScr=scrDist/(Circle.Radius+0.001)               -- 0..1 (0=ตรงกลาง)
+                local normWld=math.clamp(wldDist/500, 0, 1)                -- 0..1 (0=ใกล้, 500 studs=ไกลสุด)
+                
+                -- Smart Score: 50% screen distance + 50% world distance
+                -- ค่าน้อย = ดี (ใกล้ FOV และใกล้ตัวละคร)
+                local score=(normScr*0.5 + normWld*0.5)
+                
+                -- Bonus: ถ้าเป้าหมายอยู่ใกล้มาก (<50 studs) ลดคะแนนเพิ่ม (prioritize close targets)
+                if wldDist < 50 then
+                    score=score*0.7
+                elseif wldDist < 100 then
+                    score=score*0.85
+                end
+                
+                if score<bestScore then bestHead=targetPart; bestScore=score end
             end
         end
-        -- Invalidate locked target if dead or behind wall
-        if LockedTarget==head and (hum.Health<=0 or not IsVisible(head)) then LockedTarget=nil end
+        
+        -- ตรวจสอบ LockedTarget เฉพาะว่ายังมีชีวิตอยู่ไหม (ไม่สนว่าอยู่หลังกำแพง)
+        -- Sticky Lock: ล็อกจนตาย หรือจนกว่าผู้ใช้จะปลดเอง
+        if LockedTarget==targetPart and hum.Health<=0 then 
+            LockedTarget=nil 
+        end
     end
 
     -- ── Lock & Aim ──
-    if isAimingNow and not LockedTarget and bestHead then LockedTarget=bestHead end
+    if isAimingNow and not LockedTarget and bestHead then 
+        LockedTarget=bestHead 
+    end
+    
     if isAimingNow and LockedTarget then
         if LockedTarget and LockedTarget.Parent then
             local lhum=LockedTarget.Parent:FindFirstChildOfClass("Humanoid")
-            if lhum and lhum.Health>0 and IsVisible(LockedTarget) then
+            -- Sticky Lock: ล็อกต่อไปจนกว่าจะตาย ไม่สน visibility (ยิงทะลุกำแพงได้ถ้าล็อกไว้แล้ว)
+            if lhum and lhum.Health>0 then
                 Camera.CFrame=Camera.CFrame:Lerp(
                     CFrame.lookAt(Camera.CFrame.Position,LockedTarget.Position),
                     math.clamp(Config.AimSmooth,0.01,1))
-            else LockedTarget=nil end
-        else LockedTarget=nil end
+            else 
+                LockedTarget=nil 
+            end
+        else 
+            LockedTarget=nil 
+        end
     end
 end))
 
