@@ -327,12 +327,14 @@ setmetatable(Phwy.Settings, {
 local initialConfig = {
     Aimlock = false, AimMode = "HOLD", FOV = 20, AimSmooth = 1, WallCheck = true, TargetMode = 1, EnemyOnly = false, AimTargetPart = "Head", BindType = "Keyboard", BindKey = nil,
     ESPMaster = false, ESPShowName = false, ESPShowHealth = false, ESPShowDistance = false, ESPHighlight = false, ESPTeamCheck = false, ESPTeamColor = false, ESPXray = false, ESPTextSize = 10, ESPFillTrans = 0.5, ESPOutlineTrans = 0.1, ESPColor_C3 = Color3.new(1,1,1),
-    P_Master = false, P_ShowName = true, P_ShowHealth = true, P_ShowDist = true, P_Highlight = true, P_TeamCheck = false, P_TeamColor = false, P_Xray = false, P_TextSize = 10, P_FillTrans = 0.5, P_OutlineTrans = 0.1, P_HitboxToggle = false, P_HitboxSize = 32, HitboxTargetMode = "PLAYERS ONLY", P_Color_C3 = Color3.new(1,1,1), P_ESPInFOVOnly = false,
+    P_Master = false, P_ShowName = true, P_ShowHealth = true, P_ShowDist = true, P_Highlight = true, P_TeamCheck = false, P_TeamColor = false, P_Xray = false, P_TextSize = 10, P_FillTrans = 0.5, P_OutlineTrans = 0.1, P_HitboxToggle = false, P_HitboxSize = 32, HitboxTargetMode = "PLAYERS ONLY", P_Color_C3 = Color3.fromRGB(255,255,255), P_ESPInFOVOnly = false,
     WalkSpeed = 100, WSToggle = false, JumpPower = 100, JPToggle = false, InfJump = false, FlyToggle = false, FlySpeed = 100, Noclip = false, InfZoom = true, InvisToggle = false, FOVToggle = false, FOVView = 70, FOVColor_C3 = Color3.fromRGB(30,161,255),
     AntiAFK = true, FPSBooster = false, FPS_NoShadows = true, FPS_NoParticles = true, FPS_NoClothes = true, FPS_LowQuality = true, HipHeightToggle = false, HipHeightValue = 50, InstantPress = true, AuraRange = false,
     RTX_Enabled = false, EmoteMenuOpen = false, ChangeSky_Enabled = false, ChangeSky_Selected = "Anime-sky",
     ShowFPSPing = "FPS & Ping", ShowStatsToggle = true, HUDPosition = "TopRight", TPTarget = "-", TPMode = "Warp", TPFlightSens = 80, TPGOSwitch = false, SpecTarget = "-", SpecToggle = false, ClickTPToggle = false, ClickTPBindType = "Keyboard", ClickTPBindKey = nil, MenuToggleBindType = "Keyboard", MenuToggleBindKey = Enum.KeyCode.G, MenuVisible = true, Theme = "Midnight", 
     SliderStep = 1,
+    FPSUnlockerEnabled = false,
+    FPSCapOption = "Infinity",
     Language = "EN",
     GithubURL = "https://github.com/phwyverysad",
     ShiftLock_Enabled = false, ShiftLock_Active = false, ShiftLock_BindType = nil, ShiftLock_BindKey = nil,
@@ -500,6 +502,8 @@ local UITranslateMap = {
     ["Back"] = "ย้อนกลับ",
     ["Freecam"] = "กล้องอิสระ",
     ["Enable FPS Booster"] = "เปิดเร่ง FPS",
+    ["FPS Unlocker"] = "ปลดล็อกเฟรมเรต",
+    ["Infinity"] = "ไร้ขีดจำกัด",
     ["Disable Shadows"] = "ปิดเงา",
     ["Clear Particles"] = "ลบอนุภาค",
     ["Strip Outfits"] = "ลดชุดตัวละคร",
@@ -983,10 +987,16 @@ end
 function IsVisible(tp)
     if not Config.WallCheck then return true end
     local lpc = LocalPlayer.Character; if not lpc then return true end
-    local params = RaycastParams.new()
-    params.FilterType = Enum.RaycastFilterType.Exclude
-    params.FilterDescendantsInstances = {lpc, Camera}
-    local res = workspace:Raycast(Camera.CFrame.Position, tp.Position - Camera.CFrame.Position, params)
+    if not Runtime._AimRayParams then
+        Runtime._AimRayParams = RaycastParams.new()
+        Runtime._AimRayParams.FilterType = Enum.RaycastFilterType.Exclude
+        Runtime._AimRayParams.IgnoreWater = true
+    end
+    Runtime._AimRayFilter = Runtime._AimRayFilter or {}
+    Runtime._AimRayFilter[1] = lpc
+    Runtime._AimRayFilter[2] = Camera
+    Runtime._AimRayParams.FilterDescendantsInstances = Runtime._AimRayFilter
+    local res = workspace:Raycast(Camera.CFrame.Position, tp.Position - Camera.CFrame.Position, Runtime._AimRayParams)
     if res then return res.Instance:IsDescendantOf(tp.Parent) end
     return true
 end
@@ -1001,14 +1011,31 @@ function CacheNPC(obj)
         end)
     end
 end
-task.spawn(function() for i, v in ipairs(workspace:GetDescendants()) do CacheNPC(v); if i % 2000 == 0 then task.wait() end end end)
+task.spawn(function() for i, v in ipairs(workspace:GetDescendants()) do CacheNPC(v); if i % 3000 == 0 then task.wait() end end end)
 AddConn(workspace.DescendantAdded:Connect(function(desc)
     if State.Unloading then return end
     CacheNPC(desc)
 end))
 
+local TargetsDirty = true
+local function MarkTargetsDirty()
+    TargetsDirty = true
+end
+AddConn(Players.PlayerAdded:Connect(MarkTargetsDirty))
+AddConn(Players.PlayerRemoving:Connect(MarkTargetsDirty))
+AddConn(workspace.DescendantAdded:Connect(function(desc)
+    if desc:IsA("Humanoid") or desc.Name == "HumanoidRootPart" then
+        TargetsDirty = true
+    end
+end))
+
 task.spawn(function()
     while State.Running do
+        if not TargetsDirty then
+            task.wait(1.5)
+            continue
+        end
+        TargetsDirty = false
         local newTargets = {}
         local mode = Config.TargetMode
         local camPos = Camera.CFrame.Position
@@ -1039,7 +1066,24 @@ task.spawn(function()
             if not newTargets[char] then ClearESP(char) end
         end
         ValidTargets = newTargets
-        task.wait(0.5)
+        task.wait(1.5)
+    end
+end)
+
+task.spawn(function()
+    while State.Running do
+        task.wait(2.5)
+        for char in pairs(NPCCache) do
+            if (not char) or (not char.Parent) then
+                NPCCache[char] = nil
+            else
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+                if not (hum and hrp and hum.Health > 0) then
+                    NPCCache[char] = nil
+                end
+            end
+        end
     end
 end)
 
@@ -1211,6 +1255,8 @@ function SetWalkSpeed(on)
             local h = lpc:FindFirstChildOfClass("Humanoid")
             local hrp = lpc:FindFirstChild("HumanoidRootPart")
             if h and hrp and h.MoveDirection.Magnitude > 0 then
+                local vel = hrp.AssemblyLinearVelocity
+                if Vector2.new(vel.X, vel.Z).Magnitude < 0.2 then return end
                 hrp.Velocity = Vector3.new(h.MoveDirection.X * Config.WalkSpeed, hrp.Velocity.Y, h.MoveDirection.Z * Config.WalkSpeed)
             end
         end)
@@ -1326,9 +1372,11 @@ function SetInfZoom(on)
 end
 
 Conns.InteractAddedConn = nil
+local InteractPromptCache = {}
 function UpdateInteractables()
     local function ProcessPrompt(prompt)
         if not prompt:IsA("ProximityPrompt") then return end
+        InteractPromptCache[prompt] = true
         if not OriginalInteractData[prompt] then
             OriginalInteractData[prompt] = {
                 HoldDuration = prompt.HoldDuration,
@@ -1348,41 +1396,42 @@ function UpdateInteractables()
         end
     end
 
-    pcall(function()
-        for _, v in ipairs(workspace:GetDescendants()) do ProcessPrompt(v) end
-        for _, p in ipairs(Players:GetPlayers()) do
-            pcall(function()
-                if p.Character then
-                    for _, v in ipairs(p.Character:GetDescendants()) do ProcessPrompt(v) end
+    if not next(InteractPromptCache) then
+        pcall(function()
+            for _, v in ipairs(workspace:GetDescendants()) do
+                if v:IsA("ProximityPrompt") then
+                    InteractPromptCache[v] = true
                 end
-                local bp = p:FindFirstChildOfClass("Backpack")
-                if bp then
-                    for _, v in ipairs(bp:GetDescendants()) do ProcessPrompt(v) end
-                end
-            end)
+            end
+        end)
+    end
+    for prompt in pairs(InteractPromptCache) do
+        if prompt and prompt.Parent then
+            ProcessPrompt(prompt)
+        else
+            InteractPromptCache[prompt] = nil
+            OriginalInteractData[prompt] = nil
         end
-    end)
+    end
 
     if not Conns.InteractAddedConn then
         Conns.InteractAddedConn = AddConn(workspace.DescendantAdded:Connect(function(desc)
             if State.Unloading then return end
             if desc:IsA("ProximityPrompt") then
-                task.wait(0.1)
-                if State.Unloading then return end
-                pcall(function()
-                    if not OriginalInteractData[desc] then
-                        OriginalInteractData[desc] = {
-                            HoldDuration = desc.HoldDuration,
-                            MaxActivationDistance = desc.MaxActivationDistance
-                        }
-                    end
-                    if Config.InstantPress then desc.HoldDuration = 0 end
-                    if Config.AuraRange then desc.MaxActivationDistance = 50 end
-                end)
+                pcall(function() ProcessPrompt(desc) end)
             end
         end))
     end
 end
+
+task.spawn(function()
+    while State.Running do
+        task.wait(2.5)
+        if Config.InstantPress or Config.AuraRange then
+            UpdateInteractables()
+        end
+    end
+end)
 
 function UpdateXray(cache, enabled)
     if enabled then
@@ -1786,6 +1835,10 @@ end
 -- Collision Bypass
 Conns.CollisionBypassConn = nil
 local CollisionBypassParts = {}
+local CollisionBypassCharConns = {}
+local CollisionBypassPlayerConns = {}
+local CollisionBypassLastCleanup = 0
+
 local function TrackCollisionPart(part)
     if not part:IsA("BasePart") then return end
     local myChar = LocalPlayer.Character
@@ -1798,42 +1851,113 @@ local function TrackCollisionPart(part)
     end
 end
 
+local function TrackCharacterParts(char)
+    if not char then return end
+    for _, part in ipairs(char:GetDescendants()) do
+        TrackCollisionPart(part)
+    end
+    if CollisionBypassCharConns[char] then
+        pcall(function() CollisionBypassCharConns[char]:Disconnect() end)
+        CollisionBypassCharConns[char] = nil
+    end
+    CollisionBypassCharConns[char] = AddConn(char.DescendantAdded:Connect(function(desc)
+        TrackCollisionPart(desc)
+    end))
+end
+
+local function ClearCollisionBypassCharConnections()
+    for char, conn in pairs(CollisionBypassCharConns) do
+        pcall(function() if conn then conn:Disconnect() end end)
+        CollisionBypassCharConns[char] = nil
+    end
+end
+
+local function ClearCollisionBypassPlayerConnections()
+    for plr, connData in pairs(CollisionBypassPlayerConns) do
+        if connData then
+            pcall(function() if connData.added then connData.added:Disconnect() end end)
+            pcall(function() if connData.removing then connData.removing:Disconnect() end end)
+        end
+        CollisionBypassPlayerConns[plr] = nil
+    end
+end
+
 function SetCollisionBypass(on)
     if Conns.CollisionBypassConn then Conns.CollisionBypassConn:Disconnect(); Conns.CollisionBypassConn = nil end
     if Conns.CollisionBypassCharDescConn then Conns.CollisionBypassCharDescConn:Disconnect(); Conns.CollisionBypassCharDescConn = nil end
     if Conns.CollisionBypassCharAddedConn then Conns.CollisionBypassCharAddedConn:Disconnect(); Conns.CollisionBypassCharAddedConn = nil end
+    ClearCollisionBypassCharConnections()
+    ClearCollisionBypassPlayerConnections()
     if on then
         table.clear(CollisionBypassParts)
-        local function scanAllCharacters()
-            local myChar = LocalPlayer.Character
-            if myChar then
-                for _, part in ipairs(myChar:GetDescendants()) do TrackCollisionPart(part) end
+        CollisionBypassLastCleanup = tick()
+
+        local myChar = LocalPlayer.Character
+        if myChar then
+            TrackCharacterParts(myChar)
+        end
+
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr.Character then
+                TrackCharacterParts(plr.Character)
             end
-            for _, plr in ipairs(Players:GetPlayers()) do
-                local c = plr.Character
-                if c then
-                    for _, part in ipairs(c:GetDescendants()) do TrackCollisionPart(part) end
+            local addedConn = AddConn(plr.CharacterAdded:Connect(function(newChar)
+                TrackCharacterParts(newChar)
+            end))
+            local removingConn = AddConn(plr.CharacterRemoving:Connect(function(oldChar)
+                local chConn = CollisionBypassCharConns[oldChar]
+                if chConn then
+                    pcall(function() chConn:Disconnect() end)
+                    CollisionBypassCharConns[oldChar] = nil
                 end
+            end))
+            CollisionBypassPlayerConns[plr] = {added = addedConn, removing = removingConn}
+        end
+
+        Conns.CollisionBypassCharAddedConn = AddConn(Players.PlayerAdded:Connect(function(plr)
+            local addedConn = AddConn(plr.CharacterAdded:Connect(function(newChar)
+                TrackCharacterParts(newChar)
+            end))
+            local removingConn = AddConn(plr.CharacterRemoving:Connect(function(oldChar)
+                local chConn = CollisionBypassCharConns[oldChar]
+                if chConn then
+                    pcall(function() chConn:Disconnect() end)
+                    CollisionBypassCharConns[oldChar] = nil
+                end
+            end))
+            CollisionBypassPlayerConns[plr] = {added = addedConn, removing = removingConn}
+        end))
+        Conns.CollisionBypassCharDescConn = AddConn(Players.PlayerRemoving:Connect(function(plr)
+            local data = CollisionBypassPlayerConns[plr]
+            if data then
+                pcall(function() if data.added then data.added:Disconnect() end end)
+                pcall(function() if data.removing then data.removing:Disconnect() end end)
+                CollisionBypassPlayerConns[plr] = nil
             end
-            for npcChar in pairs(NPCCache) do
-                if npcChar and npcChar.Parent then
-                    for _, part in ipairs(npcChar:GetDescendants()) do TrackCollisionPart(part) end
-                end
+        end))
+
+        for npcChar in pairs(NPCCache) do
+            if npcChar and npcChar.Parent then
+                TrackCharacterParts(npcChar)
             end
         end
-        scanAllCharacters()
-        Conns.CollisionBypassCharAddedConn = AddConn(Players.PlayerAdded:Connect(function(plr)
-            AddConn(plr.CharacterAdded:Connect(function(newChar)
-                for _, part in ipairs(newChar:GetDescendants()) do TrackCollisionPart(part) end
-            end))
-        end))
+
         Conns.CollisionBypassConn = AddConn(RunService.Stepped:Connect(function()
-            scanAllCharacters()
             for part in pairs(CollisionBypassParts) do
                 if part and part.Parent then
                     if part.CanCollide then part.CanCollide = false end
                 else
                     CollisionBypassParts[part] = nil
+                end
+            end
+            local nowTick = tick()
+            if nowTick - CollisionBypassLastCleanup > 1 then
+                CollisionBypassLastCleanup = nowTick
+                for char, chConn in pairs(CollisionBypassCharConns) do
+                    if (not char) or (not char.Parent) then
+                        pcall(function() if chConn then chConn:Disconnect() end end)
+                        CollisionBypassCharConns[char] = nil
+                    end
                 end
             end
         end))
@@ -1846,6 +1970,8 @@ function SetCollisionBypass(on)
             end
             table.clear(CollisionBypassParts)
         end)
+        ClearCollisionBypassCharConnections()
+        ClearCollisionBypassPlayerConnections()
     end
 end
 end
@@ -2436,7 +2562,7 @@ end
 
 local function AddInlineFeatureBind(section, featureName, featureKey, defaultKey)
     if not Config.Keybinds[featureKey] then
-        Config.Keybinds[featureKey] = {Type = "Keyboard", Key = defaultKey, Enabled = false, Mode = "Toggle"}
+        Config.Keybinds[featureKey] = {Type = nil, Key = nil, Enabled = false, Mode = "Toggle"}
     end
     local kb = Config.Keybinds[featureKey]
 
@@ -2497,6 +2623,19 @@ local function AddInlineFeatureBind(section, featureName, featureKey, defaultKey
 end
 
 local function ApplySliderStep(value, minValue, maxValue, allowDecimal)
+    local function NormalizeSliderStepValue()
+        local raw = Config.SliderStep
+        if type(raw) == "number" then
+            if raw < 1 then raw = 1 end
+            Config.SliderStep = raw
+            return raw
+        end
+        local txt = tostring(raw or "1")
+        local n = tonumber((txt:gsub("[^%d]", "")))
+        if not n or n < 1 then n = 1 end
+        Config.SliderStep = n
+        return n
+    end
     local v = tonumber(value) or minValue
     local minV = tonumber(minValue) or v
     local maxV = tonumber(maxValue) or v
@@ -2505,7 +2644,7 @@ local function ApplySliderStep(value, minValue, maxValue, allowDecimal)
         if v > maxV then v = maxV end
         return v
     end
-    local step = tonumber(Config.SliderStep) or 5
+    local step = NormalizeSliderStepValue()
     if step < 1 then step = 1 end
     local snapped = math.floor((v / step) + 0.5) * step
     if snapped < minV then snapped = minV end
@@ -2596,8 +2735,16 @@ function BuildAllTabs()
     Section_AimAssistR:Colorpicker({
         Name = TL("FOV Color", "สี FOV"),
         Default = Config.FOVColor_C3,
-        Callback = function(col) Config.FOVColor_C3 = col end
-    })
+        Alpha = 0,
+        Callback = function(color, alpha)
+            if typeof(color) == "Color3" then
+                Config.FOVColor_C3 = color
+                if UI.Circle then
+                    UI.Circle.Color = color
+                end
+            end
+        end
+    }, "FOVColorToggle")
 
     Toggles["WallCheck"] = Section_AimAssistR:Toggle({
         Name = TL("Wall Check", "เช็กกำแพง"),
@@ -2693,8 +2840,13 @@ function BuildAllTabs()
     Section_Customization:Colorpicker({
         Name = TL("Primary Color", "สีหลัก"),
         Default = Config.P_Color_C3,
-        Callback = function(col) Config.P_Color_C3 = col end
-    })
+        Alpha = 0,
+        Callback = function(color, alpha)
+            if typeof(color) == "Color3" then
+                Config.P_Color_C3 = color
+            end
+        end
+    }, "ESPColorToggle")
 
     Section_Customization:Slider({
         Name = TL("Text Size", "ขนาดตัวอักษร"),
@@ -2822,7 +2974,17 @@ function BuildAllTabs()
         Options = {"1%", "5%", "10%", "25%", "50%"},
         Default = tostring(Config.SliderStep or 1) .. "%",
         Callback = function(v)
-            Config.SliderStep = tonumber((v or "1"):gsub("%%","")) or 1
+            local val = v
+            if type(v) == "number" then
+                local map = {[1]=1,[2]=5,[3]=10,[4]=25,[5]=50}
+                val = map[v] or 1
+            end
+            if type(val) == "string" then
+                local parsed = tonumber((val:gsub("[^%d]", "")))
+                Config.SliderStep = (parsed and parsed >= 1) and parsed or 1
+            else
+                Config.SliderStep = tonumber(val) or 1
+            end
         end
     })
     AddInlineFeatureBind(Section_Hitbox, "Hitbox Expander", "P_HitboxToggle", Enum.KeyCode.X)
@@ -3066,6 +3228,73 @@ function BuildAllTabs()
         Callback = function(v) Config.FPSBooster = v; if v then ApplyFPSBoost() else DisableFPSBoost() end end
     })
     AddInlineFeatureBind(Section_Optimization, "FPS Booster", "FPSBooster", Enum.KeyCode.Insert)
+    Toggles["FPSUnlockerEnabled"] = Section_Optimization:Toggle({
+        Name = TL("FPS Unlocker", "ปลดล็อกเฟรมเรต"),
+        Default = Config.FPSUnlockerEnabled,
+        Callback = function(v)
+            Config.FPSUnlockerEnabled = v
+            if FPSCapDropdown then
+                pcall(function() FPSCapDropdown:SetVisibility(v) end)
+            end
+            if v then
+                local selected = Config.FPSCapOption or "Infinity"
+                pcall(function()
+                    if selected == "Infinity" then
+                        if setfpscap then setfpscap(9999) end
+                    else
+                        local cap = tonumber(selected)
+                        if cap and setfpscap then setfpscap(cap) end
+                    end
+                end)
+            end
+        end
+    })
+    local fpsCapOptionsEN = {"Infinity", "30", "60", "75", "120", "144", "165", "240", "360"}
+    local fpsCapOptionsTH = {"ไร้ขีดจำกัด", "30", "60", "75", "120", "144", "165", "240", "360"}
+    local fpsCapSelection = Config.FPSCapOption or "Infinity"
+    local fpsCapDefaultIndex = table.find(fpsCapOptionsEN, fpsCapSelection) or 1
+    FPSCapDropdown = Section_Optimization:Dropdown({
+        Name = TL("FPS Unlocker", "ปลดล็อกเฟรมเรต"),
+        Multi = false,
+        Required = true,
+        Options = (Config.Language == "TH") and fpsCapOptionsTH or fpsCapOptionsEN,
+        Default = fpsCapDefaultIndex,
+        Callback = function(v)
+            local selected = v
+            if selected == "ไร้ขีดจำกัด" then
+                selected = "Infinity"
+            end
+            Config.FPSCapOption = selected
+            if not Config.FPSUnlockerEnabled then return end
+            pcall(function()
+                if selected == "Infinity" then
+                    if setfpscap then
+                        setfpscap(9999)
+                    end
+                else
+                    local cap = tonumber(selected)
+                    if cap and setfpscap then
+                        setfpscap(cap)
+                    end
+                end
+            end)
+        end
+    })
+    pcall(function() FPSCapDropdown:SetVisibility(Config.FPSUnlockerEnabled == true) end)
+    RegisterLanguageUpdater(function()
+        pcall(function() FPSCapDropdown:UpdateName(TL("FPS Unlocker", "ปลดล็อกเฟรมเรต")) end)
+        pcall(function() FPSCapDropdown:ClearOptions() end)
+        pcall(function()
+            if Config.Language == "TH" then
+                FPSCapDropdown:InsertOptions(fpsCapOptionsTH)
+                FPSCapDropdown:UpdateSelection((Config.FPSCapOption == "Infinity") and "ไร้ขีดจำกัด" or tostring(Config.FPSCapOption))
+            else
+                FPSCapDropdown:InsertOptions(fpsCapOptionsEN)
+                FPSCapDropdown:UpdateSelection(tostring(Config.FPSCapOption or "Infinity"))
+            end
+        end)
+        pcall(function() FPSCapDropdown:SetVisibility(Config.FPSUnlockerEnabled == true) end)
+    end)
 
     Toggles["FPS_NoShadows"] = Section_Optimization:Toggle({
         Name = TL("Disable Shadows", "ปิดเงา"),
@@ -3355,24 +3584,58 @@ function BuildAllTabs()
     Section_ServerActions:Button({
         Name = TL("🔄 Rejoin Server", "🔄 เข้าเซิร์ฟเวอร์เดิม"),
         Callback = function()
-            ShowToast(TL("Rejoining current server...", "กำลังเชื่อมต่อเซิร์ฟเวอร์เดิมใหม่..."), Colors.PrimaryBlue)
-            local ts = game:GetService("TeleportService")
-            if #Players:GetPlayers() <= 1 then
-                LocalPlayer:Kick("\nRejoining...")
-                task.wait()
-                ts:Teleport(game.PlaceId, LocalPlayer)
-            else
-                ts:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
-            end
+            Window:Dialog({
+                Title = TL("Rejoin Server", "เข้าเกมใหม่อีกครั้ง"),
+                Description = TL(
+                    "Are you sure you want to rejoin this server? This will reset your current game session.",
+                    "คุณต้องการกลับเข้าสู่เซิร์ฟเวอร์เดิมนี้ใช่หรือไม่? การกระทำนี้จะรีเซ็ตข้อมูลตัวละครของคุณ"
+                ),
+                Buttons = {
+                    {
+                        Name = TL("Confirm", "ยืนยัน"),
+                        Callback = function()
+                            ShowToast(TL("Rejoining current server...", "กำลังเชื่อมต่อเซิร์ฟเวอร์เดิมใหม่..."), Colors.PrimaryBlue)
+                            local ts = game:GetService("TeleportService")
+                            if #Players:GetPlayers() <= 1 then
+                                LocalPlayer:Kick("\nRejoining...")
+                                task.wait()
+                                ts:Teleport(game.PlaceId, LocalPlayer)
+                            else
+                                ts:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
+                            end
+                        end
+                    },
+                    {
+                        Name = TL("Cancel", "ยกเลิก")
+                    }
+                }
+            })
         end
     })
 
     Section_ServerActions:Button({
         Name = TL("🚪 Server Hop", "🚪 ย้ายเซิร์ฟเวอร์"),
         Callback = function()
-            ShowToast(TL("Searching for another server...", "กำลังสลับหาเซิร์ฟเวอร์อื่น..."), Colors.PrimaryBlue)
-            local ts = game:GetService("TeleportService")
-            ts:Teleport(game.PlaceId, LocalPlayer)
+            Window:Dialog({
+                Title = TL("Server Hop", "ย้ายเปลี่ยนเซิร์ฟเวอร์"),
+                Description = TL(
+                    "Are you sure you want to hop to another server? You will be connected to a random active server.",
+                    "คุณแน่ใจหรือไม่ว่าต้องการสลับไปเล่นเซิร์ฟเวอร์อื่น? ระบบจะสุ่มค้นหาห้องใหม่ให้คุณโดยอัตโนมัติ"
+                ),
+                Buttons = {
+                    {
+                        Name = TL("Confirm", "ยืนยัน"),
+                        Callback = function()
+                            ShowToast(TL("Searching for another server...", "กำลังสลับหาเซิร์ฟเวอร์อื่น..."), Colors.PrimaryBlue)
+                            local ts = game:GetService("TeleportService")
+                            ts:Teleport(game.PlaceId, LocalPlayer)
+                        end
+                    },
+                    {
+                        Name = TL("Cancel", "ยกเลิก")
+                    }
+                }
+            })
         end
     })
     
@@ -3853,6 +4116,13 @@ function IsAimKeyHeld()
 end
 
 -- [ MAIN GAME RENDER STEPPED SYSTEM ]
+local HitboxCharsPool = {}
+local CurrentHitboxedPool = {}
+local RenderCenter = Vector2.new(0, 0)
+local LastHitboxTick = 0
+local LastESPTick = 0
+local HITBOX_UPDATE_INTERVAL = 0.12
+local ESP_UPDATE_INTERVAL = 0.05
 AddConn(RunService.RenderStepped:Connect(function()
     if not State.Running then return end
     Camera = workspace.CurrentCamera
@@ -3934,25 +4204,39 @@ AddConn(RunService.RenderStepped:Connect(function()
         end
     end
 
-    if Config.P_HitboxToggle then
-        local chars = {}
+    local nowTick = tick()
+    local doHitboxUpdate = (nowTick - LastHitboxTick) >= HITBOX_UPDATE_INTERVAL
+    local doESPUpdate = (nowTick - LastESPTick) >= ESP_UPDATE_INTERVAL
+    if doHitboxUpdate then LastHitboxTick = nowTick end
+    if doESPUpdate then LastESPTick = nowTick end
+
+    if Config.P_HitboxToggle and doHitboxUpdate then
+        table.clear(HitboxCharsPool)
         local hMode = Config.HitboxTargetMode
 
         if hMode == "PLAYERS ONLY" or hMode == "PLAYERS & NPCs" then
-            for _, p in ipairs(Players:GetPlayers()) do
-                if p ~= LocalPlayer and p.Character then table.insert(chars, p.Character) end
+            for char, _ in pairs(ValidTargets) do
+                local owner = Players:GetPlayerFromCharacter(char)
+                if owner and owner ~= LocalPlayer then
+                    table.insert(HitboxCharsPool, char)
+                end
             end
         end
         if hMode == "NPCs ONLY" or hMode == "PLAYERS & NPCs" then
-            for char, _ in pairs(NPCCache) do table.insert(chars, char) end
+            for char, _ in pairs(ValidTargets) do
+                local owner = Players:GetPlayerFromCharacter(char)
+                if not owner then
+                    table.insert(HitboxCharsPool, char)
+                end
+            end
         end
 
-        local currentHitboxed = {}
-        for _, char in ipairs(chars) do
+        table.clear(CurrentHitboxedPool)
+        for _, char in ipairs(HitboxCharsPool) do
             local hrp = char:FindFirstChild("HumanoidRootPart")
             local hum = char:FindFirstChildOfClass("Humanoid")
             if hrp and hum and hum.Health > 0 then
-                currentHitboxed[char] = true
+                CurrentHitboxedPool[char] = true
                 if not HitboxOriginalSizes[char] then HitboxOriginalSizes[char] = hrp.Size end
                 hrp.Size = Vector3.new(Config.P_HitboxSize, Config.P_HitboxSize, Config.P_HitboxSize)
                 hrp.Transparency = 0.6
@@ -3963,7 +4247,7 @@ AddConn(RunService.RenderStepped:Connect(function()
         end
 
         for char, origSize in pairs(HitboxOriginalSizes) do
-            if not currentHitboxed[char] then
+            if not CurrentHitboxedPool[char] then
                 pcall(function()
                     local hrp = char:FindFirstChild("HumanoidRootPart")
                     if hrp then hrp.Size = origSize; hrp.Transparency = 1; hrp.Material = Enum.Material.SmoothPlastic; hrp.CanCollide = true end
@@ -3974,11 +4258,25 @@ AddConn(RunService.RenderStepped:Connect(function()
     end
 
     local vp = Camera.ViewportSize
+    local aimOrEspOrHitboxEnabled = (Config.Aimlock == true) or (Config.P_Master == true) or (Config.P_HitboxToggle == true)
+    if not aimOrEspOrHitboxEnabled then
+        if UI.Circle then
+            UI.Circle.Visible = false
+        end
+        if LockedTarget then
+            LockedTarget = nil
+        end
+        return
+    end
+
     if vp.X > 0 then
+        if typeof(Config.FOVColor_C3) ~= "Color3" then
+            Config.FOVColor_C3 = Color3.fromRGB(30,161,255)
+        end
         UI.Circle.Radius = (math.min(vp.X, vp.Y) / 2) * (Config.FOV / 100)
         UI.Circle.Position = Vector2.new(vp.X / 2, vp.Y / 2)
         UI.Circle.Color = Config.FOVColor_C3 or Colors.PrimaryBlue
-        UI.Circle.Visible = Config.Aimlock
+        UI.Circle.Visible = Config.Aimlock == true
     end
 
     local isAimingNow = false
@@ -3989,7 +4287,18 @@ AddConn(RunService.RenderStepped:Connect(function()
     end
     if not isAimingNow then LockedTarget = nil end
 
-    local center = Vector2.new(vp.X / 2, vp.Y / 2)
+    local runESP = (Config.P_Master == true)
+    if not Config.Aimlock then
+        isAimingNow = false
+    end
+    if (not runESP) and (not isAimingNow) and (not Config.P_HitboxToggle) then
+        if UI.Circle then
+            UI.Circle.Visible = false
+        end
+        return
+    end
+
+    RenderCenter = Vector2.new(vp.X / 2, vp.Y / 2)
     local bestHead, bestScore = nil, math.huge
     local LPHRP2 = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
 
@@ -4009,16 +4318,19 @@ AddConn(RunService.RenderStepped:Connect(function()
         end
         
         local refPart = hrp or head
-        local esp = GetESP(char)
+        local esp = ESP_Cache[char]
         local rPos, rVis = Camera:WorldToViewportPoint(refPart.Position)
         local scr2D = Vector2.new(rPos.X, rPos.Y)
-        local inFOV = rVis and (scr2D - center).Magnitude <= UI.Circle.Radius
+        local dxCenter = rPos.X - RenderCenter.X
+        local dyCenter = rPos.Y - RenderCenter.Y
+        local scrDistCenter = math.sqrt(dxCenter * dxCenter + dyCenter * dyCenter)
+        local inFOV = rVis and scrDistCenter <= UI.Circle.Radius
         local hpPct = math.floor((hum.Health / math.max(hum.MaxHealth, 1)) * 100)
 
         local ownerPlayer = Players:GetPlayerFromCharacter(char)
         local isPlayer = (ownerPlayer ~= nil)
 
-        local useP = isPlayer and Config.P_Master
+        local useP = isPlayer and runESP
         local showESP = useP and rVis and rPos.Z > 0 and rPos.Z < 2000
 
         if useP and Config.P_ESPInFOVOnly and not inFOV then showESP = false end
@@ -4029,29 +4341,40 @@ AddConn(RunService.RenderStepped:Connect(function()
         end
 
         if showESP then
+            if not esp then
+                esp = GetESP(char)
+            end
             local col
             if isPlayer then
                 local p = ownerPlayer
+                if typeof(Config.P_Color_C3) ~= "Color3" then
+                    Config.P_Color_C3 = Color3.fromRGB(255,255,255)
+                end
                 col = (Config.P_TeamColor) and p.TeamColor.Color or Config.P_Color_C3
             else col = Color3.new(1,1,1) end
-            local espAdornee = head or hrp or char:FindFirstChildWhichIsA("BasePart")
-            esp.Gui.Adornee = espAdornee
-            esp.Gui.Enabled = true
-            local info = {}
-            if Config.P_ShowName then table.insert(info, ownerPlayer.DisplayName or ownerPlayer.Name) end
-            if Config.P_ShowHealth then table.insert(info, "HP: " .. hpPct .. "%") end
-            if Config.P_ShowDist then table.insert(info, "[" .. math.floor(rPos.Z) .. "m]") end
-            esp.Label.Text = table.concat(info, "\n")
-            esp.Label.TextColor3 = col
-            esp.Label.TextSize = Config.P_TextSize
-            esp.Highlight.Adornee = char
-            esp.Highlight.Enabled = Config.P_Highlight
-            esp.Highlight.FillColor = col
-            esp.Highlight.FillTransparency = Config.P_FillTrans
-            esp.Highlight.OutlineColor = col
-            esp.Highlight.OutlineTransparency = Config.P_OutlineTrans
+            if doESPUpdate then
+                local espAdornee = head or hrp or char:FindFirstChildWhichIsA("BasePart")
+                esp.Gui.Adornee = espAdornee
+                esp.Gui.Enabled = true
+                local info = {}
+                if Config.P_ShowName then table.insert(info, ownerPlayer.DisplayName or ownerPlayer.Name) end
+                if Config.P_ShowHealth then table.insert(info, "HP: " .. hpPct .. "%") end
+                if Config.P_ShowDist then table.insert(info, "[" .. math.floor(rPos.Z) .. "m]") end
+                esp.Label.Text = table.concat(info, "\n")
+                esp.Label.TextColor3 = col
+                esp.Label.TextSize = Config.P_TextSize
+                esp.Highlight.Adornee = char
+                esp.Highlight.Enabled = Config.P_Highlight
+                esp.Highlight.FillColor = col
+                esp.Highlight.FillTransparency = Config.P_FillTrans
+                esp.Highlight.OutlineColor = col
+                esp.Highlight.OutlineTransparency = Config.P_OutlineTrans
+            end
         else
-            esp.Gui.Enabled = false; esp.Highlight.Enabled = false
+            if esp then
+                esp.Gui.Enabled = false
+                esp.Highlight.Enabled = false
+            end
         end
 
         local targetPart = GetTargetPart(char)
@@ -4061,7 +4384,7 @@ AddConn(RunService.RenderStepped:Connect(function()
                 if ownerPlayer.Team ~= nil and LocalPlayer.Team ~= nil then isEnemy = (ownerPlayer.Team ~= LocalPlayer.Team) else isEnemy = true end
             end
             if isEnemy and IsVisible(targetPart) then
-                local scrDist = (scr2D - center).Magnitude
+                local scrDist = scrDistCenter
                 local playerPos = LPHRP2 and LPHRP2.Position or Camera.CFrame.Position
                 local wldDist = (refPart.Position - playerPos).Magnitude
                 
